@@ -1,6 +1,121 @@
-"""business-demo API 客户端及通用 POJO 类型。"""
+"""业务客户端公共入口；导出各模块 API 和契约，不重复包装端点方法。"""
 
-from .business_api import BusinessApiClient
-from .pojo import ApiRequest, ApiResponse
+from .addresses_api import (
+    AddressFields,
+    AddressResponse,
+    AddressesApi,
+    CreateAddressRequest,
+    UpdateAddressRequest,
+)
+from .assistant_api import AssistantApi, ChatRequest, ChatResponse
+from .auth_api import (
+    AuthApi,
+    CurrentUserResponse,
+    CsrfResponse,
+    LoginRequest,
+    LoginResponse,
+    LogoutResponse,
+)
+from .operations_api import (
+    OperationDetailResponse,
+    OperationSummaryResponse,
+    OperationsApi,
+)
+from .orders_api import (
+    AddressSnapshot,
+    ChangeOrderAddressRequest,
+    CreateOrderRequest,
+    OrderItemRequest,
+    OrderItemResponse,
+    OrderListQuery,
+    OrderResponse,
+    OrderStatus,
+    OrderVersionRequest,
+    OrdersApi,
+    ShipOrderRequest,
+)
+from .pojo import (
+    ApiErrorData,
+    ApiErrorEnvelope,
+    ApiRequest,
+    ApiResponse,
+    PageResponse,
+    PaginationQuery,
+    WriteResponse,
+)
+from .products_api import (
+    CreateProductRequest,
+    ProductFields,
+    ProductListQuery,
+    ProductResponse,
+    ProductsApi,
+    UpdateProductRequest,
+)
+from .system_api import HealthResponse, SystemApi
+from .transport import (
+    API_BASE_URL_ENV,
+    DEFAULT_API_BASE_URL,
+    DEFAULT_TIMEOUT_SECONDS,
+    BusinessApiConnectionError,
+    BusinessApiException,
+    BusinessApiHttpError,
+    BusinessApiProtocolError,
+    BusinessApiTransport,
+    validate_idempotency_key,
+)
 
-__all__ = ["ApiRequest", "ApiResponse", "BusinessApiClient"]
+
+__all__ = [
+    "API_BASE_URL_ENV",
+    "DEFAULT_API_BASE_URL",
+    "DEFAULT_TIMEOUT_SECONDS",
+    "AddressesApi",
+    "AddressResponse",
+    "AddressFields",
+    "AddressSnapshot",
+    "ApiResponse",
+    "ApiRequest",
+    "ApiErrorData",
+    "ApiErrorEnvelope",
+    "AssistantApi",
+    "AuthApi",
+    "BusinessApiConnectionError",
+    "BusinessApiException",
+    "BusinessApiHttpError",
+    "BusinessApiProtocolError",
+    "BusinessApiTransport",
+    "ChatRequest",
+    "ChatResponse",
+    "ChangeOrderAddressRequest",
+    "CreateAddressRequest",
+    "CreateOrderRequest",
+    "CreateProductRequest",
+    "CurrentUserResponse",
+    "CsrfResponse",
+    "HealthResponse",
+    "LoginRequest",
+    "LoginResponse",
+    "LogoutResponse",
+    "OperationsApi",
+    "OperationDetailResponse",
+    "OperationSummaryResponse",
+    "OrderItemRequest",
+    "OrderItemResponse",
+    "OrderListQuery",
+    "OrderResponse",
+    "OrderStatus",
+    "OrderVersionRequest",
+    "OrdersApi",
+    "PageResponse",
+    "PaginationQuery",
+    "ProductFields",
+    "ProductListQuery",
+    "ProductResponse",
+    "ProductsApi",
+    "ShipOrderRequest",
+    "SystemApi",
+    "UpdateAddressRequest",
+    "UpdateProductRequest",
+    "WriteResponse",
+    "validate_idempotency_key",
+]

@@ -1,6 +1,6 @@
 # Agent Lab：学习项目骨架
 
-以 LLM 选择工具、程序受控执行、真实结果反馈的循环为主线。使用 Python 标准库保留可运行的 HTTP 空服务；新增模块均为职责占位，未实现 Agent。
+以 LLM 选择工具、程序受控执行、真实结果反馈的循环为主线。使用 Python 标准库保留可运行的 HTTP 空服务；业务 HTTP 客户端、工具层和 Ollama 模型适配器已实现，Agent 循环仍待练习。
 
 ## 启动
 
@@ -11,13 +11,13 @@ make run
 
 默认监听 `127.0.0.1:8001`。GET `/health` 返回服务状态；POST `/chat` 接受 `{"message":"你好"}`，校验输入后返回固定的“Agent 尚未实现”。网站 AI 助手面板和父目录的启动网站脚本保持兼容。
 
-重建虚拟环境用 `make setup`；`make check` 检查 src 和 evals 中 Python 文件的语法。当前没有第三方运行依赖。`pyproject.toml` 提供项目、打包和 Ruff 配置，不要求现在安装框架或 SDK。
+重建虚拟环境用 `make setup`；`make check` 检查 src、evals 和 tests 的语法；`make test` 运行工具层测试。当前没有第三方运行依赖。`pyproject.toml` 提供项目、打包和 Ruff 配置，不要求现在安装框架或 SDK。
 
 可复制 `.env.example` 为 `.env`；`make run` 与父目录启动器会加载它。当前只使用 `AGENT_PORT`，其他变量仅供练习参考。Ollama 由 App 独立启动，默认 API 地址为 `http://127.0.0.1:11434`。
 
 ## 模型接入方式
 
-由 Ollama App 在本机运行模型并提供 HTTP API。后续在 `src/agent_lab/models/ollama.py` 中直接调用 `http://127.0.0.1:11434/api/chat`，请求中指定模型 `qwen3.5:9b`。该客户端目前仍是空模块。
+由 Ollama App 在本机运行模型并提供 HTTP API。`OllamaClient` 使用标准库调用 `/api/chat`，默认地址为 `http://127.0.0.1:11434`、模型为 `qwen3.5:9b`，也可通过 `MODEL_BASE_URL` 和 `MODEL_NAME` 环境变量覆盖。通过 `from agent_lab.models import OllamaClient` 导入；`chat(messages, tools=...)` 返回完整模型响应，工具调用由后续运行时负责执行。
 
 旧的独立 `model-service` 管理项目已删除。Agent 不依赖该项目、Open WebUI 或 Docker；业务操作仍通过 business-demo 的 HTTP API 执行。
 
@@ -39,17 +39,24 @@ src/
     │   ├── limits.py         # 调用预算、超时和停止条件（待实现）
     │   └── tracing.py        # 运行与工具调用记录（待实现）
     ├── models/
-    │   └── ollama.py         # 模型 API 客户端（待实现）
+    │   └── ollama.py         # Ollama 聊天 API 客户端
     ├── tools/
-    │   ├── registry.py       # 工具定义及固定映射（待实现）
-    │   ├── orders.py         # 订单工具（待实现）
+    │   ├── registry.py       # 工具目录、按 ID 查找与描述（已实现）
+    │   ├── orders.py         # 订单查询与操作工具（已实现）
+    │   ├── addresses.py      # 地址簿工具（已实现）
+    │   ├── products.py       # 商品与管理员维护工具（已实现）
+    │   ├── operations.py     # 操作结果核实工具（已实现）
+    │   ├── contracts.py      # 工具契约和参数校验（已实现）
     │   └── routing.py        # 未来可选的分类或分派工具（未注册）
     ├── clients/
-    │   └── business_api.py   # business-demo v1 typed HTTP client
+    │   ├── __init__.py       # 统一导出模块客户端与契约
+    │   ├── orders_api.py     # 订单 HTTP 客户端（其他模块同理）
+    │   ├── transport.py      # 每用户 HTTP 会话、Cookie、CSRF 与超时
+    │   └── pojo/             # 通用请求和响应类型
     └── prompts/
-        ├── agent.md          # 空白主提示文件
-        └── loader.py         # 模板加载与参数化（待实现）
-tests/                       # 程序测试，尚无用例
+        ├── agent.md          # 主提示模板，尚未接入运行链
+        └── loader.py         # 模板加载、工具列表注入与内容版本（已实现）
+tests/                       # 工具层程序测试
 evals/
 ├── cases.jsonl              # 空白固定用例集
 └── run.py                   # 评估入口占位，尚不能评估
@@ -62,7 +69,7 @@ Makefile
 README.md
 ```
 
-`clients/business_api.py` 已实现 business-demo API v1 的类型化 HTTP 客户端：请求和响应使用泛型包装，各端点使用独立的 TypedDict 契约，并由客户端管理会话 Cookie、CSRF token、幂等键和超时。其他待实现的 Python 模块仍只含职责说明；空白提示文件不会被入口加载。执行 `evals/run.py` 会明确提示未实现并退出，不会产生虚假的通过结果。
+`clients/` 按业务模块提供 business-demo API v1 的类型化 HTTP 客户端，由包的 `__init__.py` 统一导出：请求和响应使用泛型包装，各端点使用独立的 TypedDict 契约，并由客户端管理会话 Cookie、CSRF token、幂等键和超时。工具层提供 18 个业务动作；注册表只管理工具目录，执行控制尚待 runtime 实现。使用方法与职责边界见 [工具说明](docs/tools.md)。其余待实现模块仍只含职责说明；主提示模板尚未被入口加载。执行 `evals/run.py` 会明确提示未实现并退出，不会产生虚假的通过结果。
 
 ## 目标运行结构（尚未实现）
 
@@ -80,7 +87,7 @@ HTTP 入口 → 上下文与可信任务状态 → LLM
 
 `runtime/limits.py` 在每轮和工具执行阶段限制次数及时间；`runtime/tracing.py` 记录运行过程。它们属于程序控制，不是可被模型跳过的工具。
 
-不设置独立的“分类后进入固定业务分支”入口。未来需要确定性路由时，可在 `tools/routing.py` 定义能力，让模型按需调用；现在没有路由实现或工具注册。路由工具不能绕过执行控制或隐藏未经确认的写操作。业务权限与最终写入检查继续由 business-demo 后端保证。
+不设置独立的“分类后进入固定业务分支”入口。未来需要确定性路由时，可在 `tools/routing.py` 定义能力，让模型按需调用；现在没有路由实现或路由工具注册。路由工具不能绕过执行控制或隐藏未经确认的写操作。业务权限与最终写入检查继续由 business-demo 后端保证。
 
 原来的 `agent/runner.py` 已调整为 `runtime/loop.py`；`agent/context.py`、`agent/state.py` 移入 runtime；独立的 `agent/router.py` 移除。`models/`、`clients/`、`prompts/` 和 HTTP 启动方式保持原职责。
 

@@ -1,0 +1,14 @@
+.DS_Store
+.idea/
+__pycache__/
+*.py[cod]
+.venv/
+.env
+.env.*
+!.env.example
+.local-secret
+*.sqlite3*
+.ruff_cache/
+*.egg-info/
+build/
+dist/

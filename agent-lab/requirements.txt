@@ -1,0 +1,2 @@
+# Initial entry point uses only the Python standard library.
+# Add a model client during the model-connectivity exercise.

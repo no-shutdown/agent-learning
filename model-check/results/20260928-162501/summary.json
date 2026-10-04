@@ -1,0 +1,12 @@
+{
+  "passed": 57,
+  "total": 60,
+  "median_seconds": 0.7795000000000001,
+  "max_seconds": 5.864,
+  "failed_cases": [
+    "route-outside",
+    "route-outside",
+    "route-outside"
+  ],
+  "results_directory": "/Users/colin/code/my/agent-learning/model-check/results/20260928-162501"
+}

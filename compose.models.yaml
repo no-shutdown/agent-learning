@@ -1,0 +1,18 @@
+name: agent-learning-models
+services:
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:v0.11.4
+    ports:
+      - "127.0.0.1:3000:8080"
+    environment:
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      WEBUI_AUTH: "False"
+      ENABLE_OPENAI_API: "False"
+      OFFLINE_MODE: "True"
+      HF_HUB_OFFLINE: "1"
+      RAG_EMBEDDING_MODEL_AUTO_UPDATE: "False"
+      DEFAULT_LOCALE: zh-CN
+    volumes:
+      - open-webui-data:/app/backend/data
+volumes:
+  open-webui-data:

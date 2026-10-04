@@ -1,0 +1,42 @@
+{
+  "model": "qwen3.5:9b",
+  "tags": {
+    "models": [
+      {
+        "name": "qwen3.5:9b",
+        "model": "qwen3.5:9b",
+        "modified_at": "2026-09-28T16:24:55.651838588+08:00",
+        "size": 6594474711,
+        "digest": "6488c96fa5faab64bb65cbd30d4289e20e6130ef535a93ef9a49f42eda893ea7",
+        "details": {
+          "parent_model": "",
+          "format": "gguf",
+          "family": "qwen35",
+          "families": [
+            "qwen35"
+          ],
+          "parameter_size": "9.7B",
+          "quantization_level": "Q4_K_M",
+          "context_length": 262144,
+          "embedding_length": 4096
+        },
+        "capabilities": [
+          "completion",
+          "vision",
+          "tools",
+          "thinking"
+        ]
+      }
+    ]
+  },
+  "ollama": {
+    "version": "0.34.4"
+  },
+  "platform": "macOS-26.4-arm64-arm-64bit-Mach-O",
+  "context": 8192,
+  "thinking": false,
+  "temperature": 0.2,
+  "max_output_tokens": 256,
+  "script_sha256": "9a5415f1e2a639cc727e05dff11d4b14e3e481c7eb1fc202fd70aab8ba1039a6",
+  "scope": "20 synthetic component probes; no tool execution, no long-context or complete-agent validation."
+}

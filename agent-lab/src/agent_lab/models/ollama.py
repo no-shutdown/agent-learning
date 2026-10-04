@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import math
-import os
 import socket
 from collections.abc import Mapping, Sequence
 from typing import Any, NotRequired, TypedDict, cast
@@ -15,8 +14,6 @@ from urllib.request import HTTPRedirectHandler, Request as UrlRequest, build_ope
 
 DEFAULT_BASE_URL = "http://127.0.0.1:11434"
 DEFAULT_MODEL = "qwen3.5:9b"
-BASE_URL_ENV = "MODEL_BASE_URL"
-MODEL_ENV = "MODEL_NAME"
 DEFAULT_TIMEOUT_SECONDS = 120.0
 MAX_RESPONSE_BYTES = 32 * 1024 * 1024
 
@@ -91,8 +88,8 @@ class _NoRedirectHandler(HTTPRedirectHandler):
 class OllamaClient:
     """访问一个 Ollama 实例并使用固定模型生成聊天响应。
 
-    默认读取 ``MODEL_BASE_URL`` 和 ``MODEL_NAME``，分别回退到
-    ``http://127.0.0.1:11434`` 和 ``qwen3.5:9b``。调用使用非流式响应，
+    配置由构造参数传入，不读取环境变量。默认使用本地地址与 qwen3.5:9b。
+    调用使用非流式响应，
     以便一次得到完整消息和可能的工具调用。
     """
 
@@ -103,13 +100,11 @@ class OllamaClient:
         *,
         timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
     ) -> None:
-        configured_url = (
-            base_url if base_url is not None else os.environ.get(BASE_URL_ENV, DEFAULT_BASE_URL)
-        )
-        configured_model = model if model is not None else os.environ.get(MODEL_ENV, DEFAULT_MODEL)
-        self._base_url = self._validate_base_url(configured_url)
-        self._model = self._validate_model(configured_model)
-        self._timeout_seconds = self._validate_timeout(timeout_seconds)
+        configured_url = DEFAULT_BASE_URL if base_url is None else base_url
+        configured_model = DEFAULT_MODEL if model is None else model
+        self._base_url = self.validate_base_url(configured_url)
+        self._model = self.validate_model(configured_model)
+        self._timeout_seconds = self.validate_timeout(timeout_seconds)
         self._opener = build_opener(_NoRedirectHandler())
 
     @property
@@ -193,7 +188,7 @@ class OllamaClient:
         return self._validate_response(response_data)
 
     @staticmethod
-    def _validate_base_url(value: str) -> str:
+    def validate_base_url(value: str) -> str:
         if not isinstance(value, str):
             raise ValueError("base_url must be a string")
         try:
@@ -214,13 +209,13 @@ class OllamaClient:
         return urlunsplit((parsed.scheme, parsed.netloc, parsed.path.rstrip("/"), "", ""))
 
     @staticmethod
-    def _validate_model(value: str) -> str:
+    def validate_model(value: str) -> str:
         if not isinstance(value, str) or not value.strip():
             raise ValueError("model must be a non-empty string")
         return value.strip()
 
     @staticmethod
-    def _validate_timeout(value: float) -> float:
+    def validate_timeout(value: float) -> float:
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise ValueError("timeout_seconds must be a finite number greater than zero")
         try:
@@ -260,7 +255,9 @@ class OllamaClient:
                     raise OllamaProtocolError("Ollama error response exceeded the size limit")
                 message = self._http_error_message(error.code, body)
             except (TimeoutError, socket.timeout, OSError) as read_error:
-                raise OllamaConnectionError("Unable to read the Ollama error response") from read_error
+                raise OllamaConnectionError(
+                    "Unable to read the Ollama error response"
+                ) from read_error
             finally:
                 error.close()
             raise OllamaHttpError(error.code, message) from error
@@ -321,12 +318,10 @@ class OllamaClient:
 
 
 __all__ = [
-    "BASE_URL_ENV",
     "DEFAULT_BASE_URL",
     "DEFAULT_MODEL",
     "DEFAULT_TIMEOUT_SECONDS",
     "MAX_RESPONSE_BYTES",
-    "MODEL_ENV",
     "OllamaChatResponse",
     "OllamaClient",
     "OllamaConnectionError",

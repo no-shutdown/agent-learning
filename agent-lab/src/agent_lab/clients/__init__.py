@@ -53,7 +53,6 @@ from .products_api import (
 )
 from .system_api import HealthResponse, SystemApi
 from .transport import (
-    API_BASE_URL_ENV,
     DEFAULT_API_BASE_URL,
     DEFAULT_TIMEOUT_SECONDS,
     BusinessApiConnectionError,
@@ -66,7 +65,6 @@ from .transport import (
 
 
 __all__ = [
-    "API_BASE_URL_ENV",
     "DEFAULT_API_BASE_URL",
     "DEFAULT_TIMEOUT_SECONDS",
     "AddressesApi",

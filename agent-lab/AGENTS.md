@@ -2,7 +2,7 @@
 
 This project deliberately starts empty. The user is learning by implementing it themselves.
 
-- Current scope: business HTTP clients, business tools and their tests, documentation, remaining empty learning modules and the HTTP placeholder in `src/agent_lab/main.py`. `src/main.py` remains a compatibility launcher. Tools were implemented at the user’s explicit request; the model adapter and Agent loop remain unimplemented.
+- Current scope: application configuration, model and business HTTP clients, business tools and their tests, documentation, remaining empty learning modules and the HTTP placeholder in `src/agent_lab/main.py`. `src/main.py` remains a compatibility launcher. Tools were implemented at the user’s explicit request; the model adapter is implemented; the runtime executor and Agent loop remain unimplemented.
 - Do not proactively implement prompts, intent routing, model adapters, business HTTP tools, execution loops, RAG, persistent memory or multiple Agents.
 - Teach one concrete capability at a time with objective, input, expected output and acceptance criteria. Let the user attempt it first; offer hints before small code examples. Implement a whole Agent only when explicitly requested.
 - Business operations must go through business-demo's HTTP API. Authentication, validation and reliable writes remain enforced by that website.
@@ -17,3 +17,5 @@ This project deliberately starts empty. The user is learning by implementing it 
 - Future deterministic routing may be exposed as an optional tool in `tools/routing.py`. Keep it unimplemented until an exercise requests it.
 - All tool requests must pass through the runtime executor. Confirmation, authority, limits and timeouts are mandatory program controls, not optional model-selected tools.
 - Keep remaining placeholder modules empty unless explicitly requested. `tools/registry.py` only collects tools, looks them up and returns descriptions. It must not handle sessions, authorization, confirmations or execution. These controls belong to the future runtime executor, which remains unimplemented. `Tool.invoke` is a low-level client adapter, not a model-facing execution entry point.
+
+- Application environment variables are read only by `config.load_settings()`. Clients accept explicit constructor parameters and retain their own validation/defaults; they must not depend on application globals. Use `BUSINESS_API_BASE_URL`. Keep data contracts in their owning submodules; do not recreate a catch-all top-level schemas module.

@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import json
 import math
-import os
 import re
 import socket
 import threading
 from collections.abc import Mapping
 from decimal import Decimal
 from http.cookiejar import CookieJar
-from typing import Any, cast
+from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit, urlunsplit
 from urllib.request import (
@@ -25,7 +24,6 @@ from .pojo import ApiRequest, ApiResponse, QueryValue
 
 
 DEFAULT_API_BASE_URL = "http://127.0.0.1:8000/api/v1"
-API_BASE_URL_ENV = "BUSINESS_API_BASE_URL"
 DEFAULT_TIMEOUT_SECONDS = 5.0
 MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 
@@ -76,8 +74,8 @@ class BusinessApiTransport:
         *,
         timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
     ) -> None:
-        configured_url = base_url or os.environ.get(API_BASE_URL_ENV) or DEFAULT_API_BASE_URL
-        self._base_url = self._validate_base_url(configured_url)
+        configured_url = DEFAULT_API_BASE_URL if base_url is None else base_url
+        self._base_url = self.validate_base_url(configured_url)
         if (
             isinstance(timeout_seconds, bool)
             or not isinstance(timeout_seconds, (int, float))
@@ -94,7 +92,7 @@ class BusinessApiTransport:
         self._session_lock = threading.RLock()
 
     @staticmethod
-    def _validate_base_url(value: str) -> str:
+    def validate_base_url(value: str) -> str:
         if not isinstance(value, str):
             raise ValueError("base_url must be a string")
         try:

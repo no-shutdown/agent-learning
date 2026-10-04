@@ -1,8 +1,9 @@
 """Empty HTTP entry point. No model, prompt, routing, business tools or agent loop."""
 
 import json
-import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+from .config import load_settings
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -49,7 +50,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    port = int(os.environ.get("AGENT_PORT", "8001"))
+    settings = load_settings()
+    port = settings.agent_port
     print(f"Agent empty service: http://127.0.0.1:{port}", flush=True)
     ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
 

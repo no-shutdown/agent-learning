@@ -1,6 +1,6 @@
 # 业务工具
 
-工具层已实现，HTTP `/chat` 仍为占位服务。模型接入、Agent 循环和 runtime 执行控制尚未实现。
+工具层已实现，HTTP `/chat` 仍为占位服务。模型客户端和可注入执行器的循环已实现，真实 runtime 执行器及 HTTP 接入尚未实现。
 
 ## 职责
 
@@ -62,8 +62,7 @@ read_example = ToolRegistry([LIST_ORDERS])
 
 响应中的业务数据在 `ApiResponse.data` 中，HTTP 响应头不应进入模型上下文。
 成功写入的业务数据为 `{data: 业务对象, replayed: 布尔值}`；列表为
-`count/page/page_size/results`。未来 runtime 负责校验响应、关联调用编号、
-生成 `success/error/unknown` 对话消息，尤其不能将写入超时简单视为失败后重发。
+`count/page/page_size/results`。未来 runtime 负责校验响应、生成 `success/error/unknown` 执行结果，循环关联调用编号并将数据序列化到原生 tool 消息中，尤其不能将写入超时简单视为失败后重发。
 `get_operation` 接收原操作编号，查询不到记录不证明没有正在执行的请求。
 
 ## 校验和测试
@@ -75,3 +74,5 @@ read_example = ToolRegistry([LIST_ORDERS])
 运行 `make test`，验证注册表、参数契约及所有工具对应的 HTTP 请求。
 测试使用模拟传输，不修改业务数据库，不调用模型。
 当前测试不验证 runtime 的权限、确认或结果状态，因为该层尚未实现。
+
+模型工具列表通过原生 `tools` 参数传递，不注入系统提示。具体消息格式及 Ollama 内部处理见 [原生工具调用](native-tool-calling.md)。

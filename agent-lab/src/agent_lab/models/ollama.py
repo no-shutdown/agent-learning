@@ -112,6 +112,17 @@ class OllamaClient:
         """此客户端默认使用的模型名。"""
         return self._model
 
+    def chat_with_tool_definitions(
+        self,
+        messages: Sequence[Mapping[str, Any]],
+        *,
+        tool_definitions: Sequence[Mapping[str, Any]],
+        timeout_seconds: float | None = None,
+    ) -> OllamaChatResponse:
+        """接收项目内部工具描述，并转换为 Ollama 函数工具格式后聊天。"""
+        tools = self._format_tool_definitions(tool_definitions)
+        return self.chat(messages, tools=tools, timeout_seconds=timeout_seconds)
+
     def chat(
         self,
         messages: Sequence[Mapping[str, Any]],
@@ -121,13 +132,20 @@ class OllamaClient:
         format: str | Mapping[str, Any] | None = None,
         think: bool | str | None = None,
         keep_alive: str | int | None = None,
+        timeout_seconds: float | None = None,
     ) -> OllamaChatResponse:
         """发送聊天历史并返回完整 assistant 响应。
 
         ``tools`` 使用 Ollama 的函数工具格式。此方法只与模型通信，不执行模型
         请求的工具；工具执行与确认由调用方的运行时负责。
+        ``timeout_seconds`` 可为单次请求覆盖构造器默认超时，不改变后续请求。
         """
         request_messages = self._mapping_sequence(messages, "messages", allow_empty=False)
+        request_timeout = (
+            self._timeout_seconds
+            if timeout_seconds is None
+            else self.validate_timeout(timeout_seconds)
+        )
         for index, message in enumerate(request_messages):
             role = message.get("role")
             if not isinstance(role, str) or not role.strip():
@@ -184,7 +202,7 @@ class OllamaClient:
             },
             method="POST",
         )
-        response_data = self._open(request)
+        response_data = self._open(request, timeout_seconds=request_timeout)
         return self._validate_response(response_data)
 
     @staticmethod
@@ -241,9 +259,47 @@ class OllamaClient:
             result.append(dict(item))
         return result
 
-    def _open(self, request: UrlRequest) -> Any:
+    @staticmethod
+    def _format_tool_definitions(
+        definitions: Sequence[Mapping[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """将 ToolRegistry 描述转换为 Ollama /api/chat 所需的工具对象。"""
+        source = OllamaClient._mapping_sequence(
+            definitions, "tool_definitions", allow_empty=True
+        )
+        formatted: list[dict[str, Any]] = []
+        names: set[str] = set()
+        for index, definition in enumerate(source):
+            tool_id = definition.get("tool_id")
+            description = definition.get("description")
+            parameters = definition.get("parameters")
+            if not isinstance(tool_id, str) or not tool_id.strip():
+                raise ValueError(f"tool_definitions[{index}].tool_id must be a non-empty string")
+            if tool_id in names:
+                raise ValueError(f"tool_definitions contains duplicate tool_id: {tool_id}")
+            if not isinstance(description, str) or not description.strip():
+                raise ValueError(
+                    f"tool_definitions[{index}].description must be a non-empty string"
+                )
+            if not isinstance(parameters, Mapping):
+                raise ValueError(f"tool_definitions[{index}].parameters must be a mapping")
+            names.add(tool_id)
+            formatted.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": tool_id,
+                        "description": description,
+                        "parameters": dict(parameters),
+                    },
+                }
+            )
+        return formatted
+
+    def _open(self, request: UrlRequest, *, timeout_seconds: float | None = None) -> Any:
+        timeout = self._timeout_seconds if timeout_seconds is None else timeout_seconds
         try:
-            with self._opener.open(request, timeout=self._timeout_seconds) as response:
+            with self._opener.open(request, timeout=timeout) as response:
                 body = response.read(MAX_RESPONSE_BYTES + 1)
                 if len(body) > MAX_RESPONSE_BYTES:
                     raise OllamaProtocolError("Ollama response exceeded the size limit")

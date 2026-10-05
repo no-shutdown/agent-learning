@@ -4,30 +4,30 @@
 `load_prompt()` 不再接收工具列表参数，版本只计算系统提示文本。实验记录需要另外保存工具定义及模型配置，不能把提示文本版本当作整次实验的完整版本。
 
 ```python
+from agent_lab.models import Message, ModelRequest
 from agent_lab.prompts.loader import load_prompt
 from agent_lab.tools import GET_ORDER, ToolRegistry
 
-# model 是已按应用配置创建的 OllamaClient；此处只演示一个查询工具。
-registry = ToolRegistry([GET_ORDER])
-response = model.chat_with_tool_definitions(
-    [
-        {"role": "system", "content": load_prompt().text},
-        {"role": "user", "content": "请查询订单 ID 12"},
+# model 实现统一 ChatModel.generate；当前由 main 注入 OllamaClient。
+response = model.generate(ModelRequest(
+    messages=[
+        Message("system", load_prompt().text),
+        Message("user", "请查询订单 ID 12"),
     ],
-    tool_definitions=registry.definitions(),
-)
-# response["message"]["tool_calls"] 是待检查、待执行的请求，不能当作已执行结果。
+    tools=ToolRegistry([GET_ORDER]).definitions(),
+))
+# response.tool_calls 是待检查、待执行的统一 ToolCall；response.text 是回答文本。
 ```
 
-模型客户端把内部的 `tool_id/description/parameters` 转换成
-`type=function, function={name, description, parameters}`。内部权限标记仍由 runtime 使用，不是模型授权证明。
-原生工具定义的参数 JSON Schema 由业务工具维护；服务端不会自动发现网站接口。
+loop 只使用 models/contracts.py 中的 Message、ModelRequest、ModelResponse 和 ChatModel，不解析 Ollama JSON。模型适配器负责把内部工具描述转换为服务所需格式，把统一消息编码成原生 messages，并解析原生 tool_calls。
 
-现有循环保留工具调用历史，把执行器结果 JSON 放进
-`{"role": "tool", "tool_name": "get_order", "content": "..."}`，再请求模型继续。
-普通回复从 `message.content` 读取，仅 `message.tool_calls` 触发执行器。
-正文即使包含旧的 `role/type/data` JSON，也只是文本，不会执行。
-`ToolExecutor` 已实现，测试包含真实执行器与模拟 HTTP 的接入；HTTP `/chat` 已接入该循环，`/confirm` 负责可信确认后的接续。
+执行器结果保存为 `Message("tool", tool_result=execution_result)`，保持结构化对象。OllamaClient 将其转为 role/tool_name/tool_call_id/content，只有在此处才把结果编码为 JSON 字符串。适配器保留服务提供的调用编号；缺失时生成唯一编号，历史中的请求与结果沿用同一编号。
+
+原生工具定义的参数 JSON Schema 由业务工具维护；服务端不会自动发现网站接口。统一协议不改变工具授权：所有请求仍交给 ToolExecutor；正文即使包含旧的 role/type/data JSON，也只是文本。
+
+OllamaClient.chat 和 chat_with_tool_definitions 保留为供应商专用的低层接口；应用主循环不使用它们。其他服务只需实现相同 generate 接口及 ModelError 错误边界，详情见 [模型统一协议](model-protocol.md)。
+
+HTTP `/chat` 已接入该循环，`/confirm` 使用相同统一历史恢复执行。
 
 ## Ollama 内部怎样处理 tools
 

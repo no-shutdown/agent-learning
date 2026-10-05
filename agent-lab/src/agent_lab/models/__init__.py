@@ -31,3 +31,23 @@ __all__ = [
     "OllamaToolCall",
     "OllamaToolCallFunction",
 ]
+
+from .contracts import (
+    ChatModel,
+    Message,
+    ModelRequest,
+    ModelResponse,
+    ModelError,
+    ModelProtocolError,
+    ToolCall,
+)
+
+__all__ += [
+    "ChatModel",
+    "Message",
+    "ModelRequest",
+    "ModelResponse",
+    "ModelError",
+    "ModelProtocolError",
+    "ToolCall",
+]

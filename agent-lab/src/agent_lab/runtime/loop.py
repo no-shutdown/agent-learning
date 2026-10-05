@@ -6,14 +6,15 @@
 
 from __future__ import annotations
 
-import json
+from copy import deepcopy
 import math
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
-from typing import Any, Literal, Protocol
+from typing import Any, Literal
 
 from ..prompts.loader import load_prompt
+from ..models.contracts import ChatModel, Message, ModelRequest, ModelResponse
 from .tracing import emit
 from ..tools.registry import ToolRegistry
 from .contracts import ExecutionProtocolError, RuntimeExecutor, ToolCall, validate_execution_result
@@ -34,25 +35,13 @@ class LoopProtocolError(LoopError):
     """模型或 runtime executor 返回了不符合协议的数据。"""
 
 
-class ChatModel(Protocol):
-    """与循环兼容的聊天模型接口。"""
-
-    def chat_with_tool_definitions(
-        self,
-        messages: Sequence[Mapping[str, Any]],
-        *,
-        tool_definitions: Sequence[Mapping[str, Any]],
-        timeout_seconds: float | None = None,
-    ) -> Mapping[str, Any]: ...
-
-
 @dataclass(frozen=True, slots=True)
 class LoopResult:
     """一次任务循环的结果和可供上层运行时接续的消息。"""
 
     status: LoopStatus
     reply: str | None
-    messages: tuple[Mapping[str, Any], ...]
+    messages: tuple[Message, ...]
     model_calls: int
     tool_calls: int
     prompt_version: str
@@ -66,7 +55,7 @@ def run_loop(
     model: ChatModel,
     executor: RuntimeExecutor,
     registry: ToolRegistry,
-    history: Sequence[Mapping[str, Any]] = (),
+    history: Sequence[Message] = (),
     max_model_calls: int = DEFAULT_MAX_MODEL_CALLS,
     max_tool_calls: int = DEFAULT_MAX_TOOL_CALLS,
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
@@ -75,8 +64,7 @@ def run_loop(
 
     参数：
       - ``user_message``：本次用户请求。
-      - ``model``：实现 ``chat_with_tool_definitions`` 接口的模型客户端；当前 Ollama
-        客户端提供此方法。
+      - ``model``：实现统一 ``generate(ModelRequest) -> ModelResponse`` 的模型客户端。
       - ``executor``：runtime executor；所有模型工具请求都必须经它处理。
       - ``registry``：向模型展示的工具集合。它不是权限凭证，executor 仍须逐次授权。
       - ``max_model_calls`` / ``max_tool_calls``：本次任务的硬调用上限。
@@ -104,27 +92,12 @@ def run_loop(
     )
 
     # history 仅由服务端保存的对话状态提供，不从客户端请求接收 role/messages。
-    messages: list[dict[str, Any]] = (
-        json.loads(_json_text(list(history)))
-        if history
-        else [
-            {"role": "system", "content": prompt.text},
-        ]
-    )
+    messages = deepcopy(list(history)) if history else [Message("system", prompt.text)]
     if user_message is not None:
-        messages.append({"role": "user", "content": user_message.strip()})
+        messages.append(Message("user", user_message.strip()))
     started_at = time.monotonic()
     model_calls = 0
     tool_calls = 0
-    seen_call_ids: set[str] = set()
-    for message in messages:
-        if message.get("role") == "tool":
-            record = json.loads(message["content"])
-            if isinstance(record, dict) and isinstance(record.get("call_id"), str):
-                seen_call_ids.add(record["call_id"])
-        for call in message.get("tool_calls", []):
-            if isinstance(call.get("id"), str):
-                seen_call_ids.add(call["id"])
 
     while True:
         if model_calls >= max_model_calls or _remaining_time(started_at, timeout_seconds) <= 0:
@@ -137,25 +110,17 @@ def run_loop(
             return _result(
                 "budget_exhausted", None, messages, model_calls, tool_calls, prompt.version
             )
-        response = model.chat_with_tool_definitions(
-            messages,
-            tool_definitions=definitions,
+        response = model.generate(
+            ModelRequest(messages=deepcopy(messages), tools=definitions),
             timeout_seconds=remaining,
         )
         model_calls += 1
-        assistant = _assistant_message(response)
-        content = assistant["content"]
-        raw_calls = assistant.get("tool_calls", [])
-
-        # 只把模型对话内容和实际工具请求放回历史，不保留模型的 thinking 字段。
-        assistant_record = {"role": "assistant", "content": content}
-        if raw_calls:
-            assistant_record["tool_calls"] = raw_calls
-        messages.append(assistant_record)
-
-        if raw_calls:
-            requested_calls = _native_tool_calls(raw_calls, tool_calls, seen_call_ids)
-        else:
+        if not isinstance(response, ModelResponse):
+            raise LoopProtocolError("模型适配器必须返回 ModelResponse")
+        content = response.text
+        requested_calls = response.tool_calls
+        messages.append(Message("assistant", content, requested_calls))
+        if not requested_calls:
             if not content.strip():
                 raise LoopProtocolError("模型既未返回工具调用，也未返回非空回答")
             if _remaining_time(started_at, timeout_seconds) <= 0:
@@ -225,12 +190,7 @@ def run_loop(
                     pending_confirmation=confirmation,
                 )
 
-            tool_message = {
-                "role": "tool",
-                "tool_name": call.tool_id,
-                "content": _json_text(result_data),
-            }
-            messages.append(tool_message)
+            messages.append(Message("tool", tool_result=result_data))
 
 
 def resume_loop(
@@ -259,7 +219,7 @@ def resume_loop(
         ],
     )
     started = time.monotonic()
-    messages = json.loads(_json_text(list(previous.messages)))
+    messages = deepcopy(list(previous.messages))
     used = previous.tool_calls
     for index, call in enumerate(previous.pending_calls):
         remaining = _remaining_time(started, timeout_seconds)
@@ -290,7 +250,7 @@ def resume_loop(
                 pending_calls=previous.pending_calls[index:],
                 pending_confirmation=confirmation,
             )
-        messages.append({"role": "tool", "tool_name": call.tool_id, "content": _json_text(data)})
+        messages.append(Message("tool", tool_result=data))
     remaining = _remaining_time(started, timeout_seconds)
     if used >= max_tool_calls or previous.model_calls >= max_model_calls or remaining <= 0:
         return replace(
@@ -319,80 +279,6 @@ def resume_loop(
     )
 
 
-def _assistant_message(response: Mapping[str, Any]) -> dict[str, Any]:
-    if not isinstance(response, Mapping):
-        raise LoopProtocolError("模型响应必须是对象")
-    message = response.get("message")
-    if not isinstance(message, Mapping):
-        raise LoopProtocolError("模型响应缺少 message 对象")
-    if message.get("role") != "assistant":
-        raise LoopProtocolError("模型 message.role 必须是 assistant")
-    content = message.get("content")
-    if not isinstance(content, str):
-        raise LoopProtocolError("模型 message.content 必须是字符串")
-
-    tool_calls = message.get("tool_calls", [])
-    if not isinstance(tool_calls, list):
-        raise LoopProtocolError("模型 message.tool_calls 必须是数组")
-    if tool_calls:
-        return {"content": content, "tool_calls": tool_calls}
-    return {"content": content}
-
-
-def _native_tool_calls(
-    values: list[Any],
-    completed_calls: int,
-    seen_call_ids: set[str],
-) -> tuple[ToolCall, ...]:
-    calls: list[ToolCall] = []
-    for index, item in enumerate(values):
-        if not isinstance(item, Mapping):
-            raise LoopProtocolError(f"tool_calls[{index}] 必须是对象")
-        function = item.get("function")
-        if not isinstance(function, Mapping):
-            raise LoopProtocolError(f"tool_calls[{index}].function 必须是对象")
-        tool_id = function.get("name")
-        arguments = function.get("arguments")
-        if not isinstance(tool_id, str) or not tool_id.strip():
-            raise LoopProtocolError(f"tool_calls[{index}] 缺少 function.name")
-        if not isinstance(arguments, Mapping):
-            raise LoopProtocolError(f"tool_calls[{index}].function.arguments 必须是对象")
-
-        call_id = item.get("id")
-        if call_id is None:
-            call_id = _generated_call_id(completed_calls + index + 1, seen_call_ids)
-        calls.append(_make_tool_call(call_id, tool_id, arguments, seen_call_ids))
-    return tuple(calls)
-
-
-def _generated_call_id(start: int, seen_call_ids: set[str]) -> str:
-    number = start
-    while f"call_{number}" in seen_call_ids:
-        number += 1
-    return f"call_{number}"
-
-
-def _make_tool_call(
-    call_id: Any,
-    tool_id: Any,
-    arguments: Any,
-    seen_call_ids: set[str],
-) -> ToolCall:
-    if not isinstance(call_id, str) or not call_id.strip():
-        raise LoopProtocolError("工具请求 call_id 必须是非空字符串")
-    if not isinstance(tool_id, str) or not tool_id.strip():
-        raise LoopProtocolError("工具请求 tool_id 必须是非空字符串")
-    if not isinstance(arguments, Mapping):
-        raise LoopProtocolError("工具请求 arguments 必须是对象")
-    try:
-        # 确保参数能安全地序列化并交给 executor。
-        copied_arguments = json.loads(_json_text(dict(arguments)))
-    except (TypeError, ValueError) as error:
-        raise LoopProtocolError("工具 arguments 必须是 JSON 数据") from error
-    seen_call_ids.add(call_id)
-    return ToolCall(call_id, tool_id, copied_arguments)
-
-
 def _remaining_time(started_at: float, timeout_seconds: float) -> float:
     return timeout_seconds - (time.monotonic() - started_at)
 
@@ -413,17 +299,10 @@ def _validate_timeout(value: float) -> None:
         raise ValueError("timeout_seconds 必须是大于零的有限数值")
 
 
-def _json_text(value: Any) -> str:
-    try:
-        return json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
-    except (TypeError, ValueError) as error:
-        raise LoopProtocolError("消息必须由 JSON 兼容值组成") from error
-
-
 def _result(
     status: LoopStatus,
     reply: str | None,
-    messages: Sequence[Mapping[str, Any]],
+    messages: Sequence[Message],
     model_calls: int,
     tool_calls: int,
     prompt_version: str,

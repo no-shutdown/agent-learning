@@ -12,6 +12,7 @@ from agent_lab.clients import (
     BusinessApiHttpError,
 )
 from agent_lab.runtime.executor import ToolExecutor
+from agent_lab.models import ModelResponse, ToolCall
 from agent_lab.runtime.loop import run_loop, LoopProtocolError
 from agent_lab.tools import ToolRegistry, GET_ORDER, PAY_ORDER, SHIP_ORDER
 
@@ -184,33 +185,21 @@ class ExecutorTest(unittest.TestCase):
 
     def test_loop_uses_real_executor(self):
         model = Mock()
-        model.chat_with_tool_definitions.side_effect = [
-            {
-                "message": {
-                    "role": "assistant",
-                    "content": "",
-                    "tool_calls": [
-                        {"function": {"name": "get_order", "arguments": {"order_id": 12}}}
-                    ],
-                }
-            },
-            {"message": {"role": "assistant", "content": "订单待支付"}},
+        model.generate.side_effect = [
+            ModelResponse(tool_calls=(ToolCall("call_1", "get_order", {"order_id": 12}),)),
+            ModelResponse(text="订单待支付"),
         ]
         result = run_loop(
             "查订单12", model=model, executor=self.executor, registry=ToolRegistry([GET_ORDER])
         )
         self.assertEqual(result.reply, "订单待支付")
-        self.assertEqual(json.loads(result.messages[3]["content"])["status"], "success")
+        self.assertEqual(result.messages[3].tool_result["status"], "success")
 
     def test_loop_rejects_mismatched_executor_result(self):
         model = Mock()
-        model.chat_with_tool_definitions.return_value = {
-            "message": {
-                "role": "assistant",
-                "content": "",
-                "tool_calls": [{"function": {"name": "get_order", "arguments": {"order_id": 12}}}],
-            }
-        }
+        model.generate.return_value = ModelResponse(
+            tool_calls=(ToolCall("call_1", "get_order", {"order_id": 12}),)
+        )
         executor = Mock()
         executor.execute.return_value = {
             "call_id": "wrong",

@@ -21,3 +21,5 @@ This project deliberately starts empty. The user is learning by implementing it 
 - Application environment variables are read only by `config.load_settings()`. Clients accept explicit constructor parameters and retain their own validation/defaults; they must not depend on application globals. Use `BUSINESS_API_BASE_URL`. Keep data contracts in their owning submodules; do not recreate a catch-all top-level schemas module.
 
 - Use native model tool calling only: descriptions go through the model API tools field, user/assistant/tool history uses native message roles. Do not reintroduce prompt tool-list placeholders or interpret assistant content JSON as executable tool requests.
+
+- The loop depends only on models/contracts.py (ChatModel.generate, ModelRequest, ModelResponse, Message, ToolCall). Provider-specific message serialization, native response parsing, missing call-ID generation and error adaptation belong in each model client. Keep confirmation/cancellation history in the same neutral Message type. Only main selects concrete adapters.

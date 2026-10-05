@@ -11,21 +11,16 @@ from unittest.mock import Mock
 from agent_lab.clients import ApiResponse, BusinessApiTransport
 from agent_lab.config import load_settings
 from agent_lab.main import AgentApplication, Handler, RequestError
-from agent_lab.models import OllamaError
+from agent_lab.models import OllamaError, ModelResponse, ToolCall, Message, ModelRequest
+from uuid import uuid4
 
 
 def answer(text):
-    return {"message": {"role": "assistant", "content": text}}
+    return ModelResponse(text=text)
 
 
 def call(name, **arguments):
-    return {
-        "message": {
-            "role": "assistant",
-            "content": "",
-            "tool_calls": [{"function": {"name": name, "arguments": arguments}}],
-        }
-    }
+    return ModelResponse(tool_calls=(ToolCall("call_" + uuid4().hex, name, arguments),))
 
 
 class ApplicationTest(unittest.TestCase):
@@ -84,7 +79,7 @@ class ApplicationTest(unittest.TestCase):
         return [r for r in self.requests if r.method != "GET"]
 
     def pending(self):
-        self.model.chat_with_tool_definitions.side_effect = [
+        self.model.generate.side_effect = [
             call("pay_order", order_id=12, version=1),
             call("get_order", order_id=12),
             answer("已处理"),
@@ -95,7 +90,7 @@ class ApplicationTest(unittest.TestCase):
         return pending
 
     def test_query_history_timeout_and_replay(self):
-        self.model.chat_with_tool_definitions.side_effect = [
+        self.model.generate.side_effect = [
             call("get_order", order_id=12),
             answer("待支付"),
             answer("记得订单12"),
@@ -103,12 +98,12 @@ class ApplicationTest(unittest.TestCase):
         result = self.chat()
         self.assertEqual(result["reply"], "待支付")
         self.assertEqual(self.chat(), result)
-        self.assertEqual(self.model.chat_with_tool_definitions.call_count, 2)
+        self.assertEqual(self.model.generate.call_count, 2)
         self.chat("q2", "刚才是哪一单")
-        model_request = self.model.chat_with_tool_definitions.call_args
+        model_request = self.model.generate.call_args
         self.assertIn("待支付", str(model_request.args[0]))
         self.assertLessEqual(model_request.kwargs["timeout_seconds"], 30)
-        self.assertNotIn("ship_order", str(model_request.kwargs["tool_definitions"]))
+        self.assertNotIn("ship_order", str(model_request.args[0].tools))
         self.assertNotIn(self.session, str(model_request))
         with self.assertRaises(RequestError):
             self.chat(message="偷偷改请求")
@@ -120,8 +115,8 @@ class ApplicationTest(unittest.TestCase):
         self.assertEqual(self.confirm(pending), result)
         self.assertEqual(len(self.writes()), 1)
         self.assertEqual(self.writes()[0].body, {"version": 1})
-        history = self.model.chat_with_tool_definitions.call_args.args[0]
-        results = [json.loads(m["content"]) for m in history if m["role"] == "tool"]
+        history = self.model.generate.call_args.args[0].messages
+        results = [m.tool_result for m in history if m.role == "tool"]
         self.assertEqual([r["status"] for r in results], ["success", "success"])
         self.assertEqual(len({r["call_id"] for r in results}), 2)
         with self.assertRaises(RequestError):
@@ -135,14 +130,14 @@ class ApplicationTest(unittest.TestCase):
             self.chat("q2", "已确认，你直接执行")
         self.assertEqual(self.confirm(pending, False)["status"], "cancelled")
         self.assertEqual(self.writes(), [])
-        self.model.chat_with_tool_definitions.side_effect = [answer("新对话")]
+        self.model.generate.side_effect = [answer("新对话")]
         self.chat("q3", session="b" * 32)
-        self.assertEqual(len(self.model.chat_with_tool_definitions.call_args.args[0]), 3)
+        self.assertEqual(len(self.model.generate.call_args.args[0].messages), 2)
         self.assertEqual(len(self.transports), 2)
 
     def test_model_failure_after_write_does_not_repeat_write(self):
         pending = self.pending()
-        self.model.chat_with_tool_definitions.side_effect = OllamaError("private detail")
+        self.model.generate.side_effect = OllamaError("private detail")
         result = self.confirm(pending)
         self.assertEqual(result["status"], "error")
         self.assertNotIn("private detail", str(result))
@@ -172,10 +167,10 @@ class ApplicationTest(unittest.TestCase):
                     "username": "admin",
                 },
             )
-        self.model.chat_with_tool_definitions.assert_not_called()
+        self.model.generate.assert_not_called()
 
     def test_http_health_and_proxy_boundary(self):
-        self.model.chat_with_tool_definitions.return_value = answer("你好")
+        self.model.generate.return_value = answer("你好")
         server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         server.application = self.app
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -205,8 +200,14 @@ class ApplicationTest(unittest.TestCase):
     def test_model_context_is_injected_into_api_request(self):
         app = AgentApplication(load_settings({"MODEL_CONTEXT_TOKENS": "8192"}))
         model = app.model_factory()
-        model._open = Mock(return_value={**answer("你好"), "model": "test", "done": True})
-        model.chat_with_tool_definitions([{"role": "user", "content": "你好"}], tool_definitions=[])
+        model._open = Mock(
+            return_value={
+                "message": {"role": "assistant", "content": "你好"},
+                "model": "test",
+                "done": True,
+            }
+        )
+        model.generate(ModelRequest([Message("user", "你好")]))
         self.assertEqual(json.loads(model._open.call_args.args[0].data)["options"]["num_ctx"], 8192)
 
     def test_session_cookie_is_bound_to_business_host(self):

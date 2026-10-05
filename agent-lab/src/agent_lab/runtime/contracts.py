@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass
 from typing import Any, Literal, Protocol
+from ..models.contracts import ToolCall
 
 ExecutionStatus = Literal["success", "error", "unknown", "confirmation_required"]
 
@@ -34,15 +34,6 @@ class RuntimeExecutor(Protocol):
         arguments: Mapping[str, Any],
         timeout_seconds: float,
     ) -> Mapping[str, Any]: ...
-
-
-@dataclass(frozen=True, slots=True)
-class ToolCall:
-    """经过循环协议检查的单次工具请求。"""
-
-    call_id: str
-    tool_id: str
-    arguments: Mapping[str, Any]
 
 
 def validate_execution_result(

@@ -11,7 +11,7 @@ import time
 
 from .clients import AuthApi, BusinessApiTransport, BusinessApiHttpError, BusinessApiException
 from .config import load_settings
-from .models import OllamaClient, OllamaError
+from .models import OllamaClient, ModelError, Message
 from .runtime.executor import ToolExecutor
 from .runtime.loop import LoopError, run_loop, resume_loop
 from .tools import ALL_TOOLS, ToolRegistry
@@ -152,7 +152,7 @@ class AgentApplication:
             # 异常后同一请求也不能隐式重复执行；只缓存公开的错误，不缓存凭据。
             try:
                 reply = self._turn(state, identity, route, data)
-            except (OllamaError, LoopError) as error:
+            except (ModelError, LoopError) as error:
                 emit("agent.error", error_type=type(error).__name__)
                 reply = {
                     "reply": "模型调用失败或响应异常。若刚确认过写入，请先核实操作记录，不要重复提交。",
@@ -196,22 +196,18 @@ class AgentApplication:
                 messages = list(previous.messages)
                 for call in previous.pending_calls:
                     messages.append(
-                        {
-                            "role": "tool",
-                            "tool_name": call.tool_id,
-                            "content": json.dumps(
-                                {
-                                    "call_id": call.call_id,
-                                    "tool_id": call.tool_id,
-                                    "status": "error",
-                                    "result": None,
-                                    "error": {"code": "user_cancelled", "message": "用户取消操作"},
-                                },
-                                ensure_ascii=False,
-                            ),
-                        }
+                        Message(
+                            "tool",
+                            tool_result={
+                                "call_id": call.call_id,
+                                "tool_id": call.tool_id,
+                                "status": "error",
+                                "result": None,
+                                "error": {"code": "user_cancelled", "message": "用户取消操作"},
+                            },
+                        )
                     )
-                messages.append({"role": "assistant", "content": "已取消尚未执行的操作。"})
+                messages.append(Message("assistant", "已取消尚未执行的操作。"))
                 state.history, state.pending, state.confirmation_id = tuple(messages), None, None
                 return {
                     "reply": "已取消尚未执行的操作。",

@@ -51,7 +51,7 @@ model = OllamaClient(
 
 ## 模型接入方式
 
-由 Ollama App 在本机运行模型并提供 HTTP API。`OllamaClient` 使用标准库调用 `/api/chat`，默认地址为 `http://127.0.0.1:11434`、模型为 `qwen3.5:9b`，应用配置读取 `MODEL_BASE_URL` 和 `MODEL_NAME` 后显式传给客户端；客户端本身不再读取环境变量。通过 `from agent_lab.models import OllamaClient` 导入；`chat(messages, tools=...)` 返回完整模型响应，工具调用由注入的运行时执行器负责，`ToolExecutor` 已实现，使用方法见 [执行器说明](docs/executor.md)。原生协议与 Ollama 内部机制见 [工具调用说明](docs/native-tool-calling.md)。
+由 Ollama App 在本机运行模型并提供 HTTP API。`OllamaClient` 使用标准库调用 `/api/chat`，默认地址为 `http://127.0.0.1:11434`、模型为 `qwen3.5:9b`，应用配置读取 `MODEL_BASE_URL` 和 `MODEL_NAME` 后显式传给客户端；客户端本身不再读取环境变量。通过 `from agent_lab.models import OllamaClient` 导入；`generate(ModelRequest)` 返回统一 ModelResponse，供应商原始格式由客户端转换，工具调用由注入的运行时执行器负责，`ToolExecutor` 已实现，使用方法见 [执行器说明](docs/executor.md)。原生协议与 Ollama 内部机制见 [工具调用说明](docs/native-tool-calling.md)。
 
 旧的独立 `model-service` 管理项目已删除。Agent 不依赖该项目、Open WebUI 或 Docker；业务操作仍通过 business-demo 的 HTTP API 执行。
 
@@ -65,7 +65,7 @@ src/
     ├── main.py               # HTTP 接入、依赖组装和内存会话
     ├── config.py             # 应用配置读取与校验（已实现）
     ├── runtime/
-    │   ├── loop.py           # 原生 tool_calls 循环，需注入执行器
+    │   ├── loop.py           # 使用统一模型协议的循环，需注入执行器
     │   ├── context.py        # 本轮消息、提示与工具上下文（待实现）
     │   ├── state.py          # 任务及待确认操作状态（待实现）
     │   ├── executor.py       # 工具校验、确认、去重、执行及结果转换
@@ -73,7 +73,8 @@ src/
     │   ├── limits.py         # 调用预算、超时和停止条件（待实现）
     │   └── tracing.py        # 脱敏 JSONL 日志、关联编号、耗时与文件轮转
     ├── models/
-    │   └── ollama.py         # Ollama 聊天 API 客户端
+    │   ├── contracts.py      # 统一消息、请求、响应、工具调用和模型接口
+    │   └── ollama.py         # Ollama 协议适配与 HTTP 客户端
     ├── tools/
     │   ├── registry.py       # 工具目录、按 ID 查找与描述（已实现）
     │   ├── orders.py         # 订单查询与操作工具（已实现）
@@ -139,3 +140,5 @@ HTTP 入口 → 上下文与可信任务状态 → LLM
 # 在 agent-lab 目录内，另开终端查看
 tail -f runs/logs/agent.jsonl
 ```
+
+模型输入输出及新增适配器的边界见 [模型统一协议](docs/model-protocol.md)。loop 无需知道 Ollama 原始字段，main 负责选择并注入具体客户端。

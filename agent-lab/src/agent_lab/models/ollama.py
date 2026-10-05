@@ -3,6 +3,15 @@
 from __future__ import annotations
 
 from ..runtime.tracing import span
+from .contracts import (
+    Message,
+    ModelRequest,
+    ModelResponse,
+    ModelError,
+    ModelProtocolError,
+    ToolCall,
+)
+from uuid import uuid4
 
 import json
 import math
@@ -20,7 +29,7 @@ DEFAULT_TIMEOUT_SECONDS = 120.0
 MAX_RESPONSE_BYTES = 32 * 1024 * 1024
 
 
-class OllamaError(Exception):
+class OllamaError(ModelError):
     """Ollama 客户端异常的基类。"""
 
 
@@ -52,6 +61,7 @@ class OllamaToolCall(TypedDict):
     """Ollama assistant 消息中的工具调用。"""
 
     function: OllamaToolCallFunction
+    id: NotRequired[str]
     index: NotRequired[int]
 
 
@@ -117,6 +127,64 @@ class OllamaClient:
     def model(self) -> str:
         """此客户端默认使用的模型名。"""
         return self._model
+
+    def generate(
+        self, request: ModelRequest, *, timeout_seconds: float | None = None
+    ) -> ModelResponse:
+        """统一模型入口；原生请求与响应格式仅在本适配器内使用。"""
+        if not isinstance(request, ModelRequest):
+            raise ModelProtocolError("需要 ModelRequest")
+        messages = [self._encode_message(message) for message in request.messages]
+        raw = self.chat_with_tool_definitions(
+            messages,
+            tool_definitions=request.tools,
+            timeout_seconds=timeout_seconds,
+        )
+        message = raw["message"]
+        calls = tuple(
+            ToolCall(
+                call_id=call["id"] if call.get("id") is not None else "call_" + uuid4().hex,
+                tool_id=call["function"]["name"],
+                arguments=call["function"]["arguments"],
+            )
+            for call in message.get("tool_calls", [])
+        )
+        return ModelResponse(
+            text=message["content"],
+            tool_calls=calls,
+            metadata={
+                key: raw[key]
+                for key in (
+                    "model",
+                    "done_reason",
+                    "prompt_eval_count",
+                    "eval_count",
+                    "total_duration",
+                )
+                if key in raw
+            },
+        )
+
+    @staticmethod
+    def _encode_message(message: Message) -> dict:
+        if message.role == "tool":
+            result = message.tool_result
+            return {
+                "role": "tool",
+                "tool_name": result["tool_id"],
+                "tool_call_id": result["call_id"],
+                "content": json.dumps(dict(result), ensure_ascii=False, allow_nan=False),
+            }
+        encoded = {"role": message.role, "content": message.text}
+        if message.tool_calls:
+            encoded["tool_calls"] = [
+                {
+                    "id": call.call_id,
+                    "function": {"name": call.tool_id, "arguments": dict(call.arguments)},
+                }
+                for call in message.tool_calls
+            ]
+        return encoded
 
     def chat_with_tool_definitions(
         self,

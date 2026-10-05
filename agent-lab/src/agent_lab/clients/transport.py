@@ -11,7 +11,7 @@ import time
 from contextlib import contextmanager
 from collections.abc import Mapping
 from decimal import Decimal
-from http.cookiejar import CookieJar
+from http.cookiejar import Cookie, CookieJar
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit, urlunsplit
@@ -299,6 +299,36 @@ class BusinessApiTransport:
                 raise TypeError(f"query parameter {key!r} must be a string or integer")
             parameters[key] = value
         return parameters
+
+    def bind_business_session(self, session_key: str) -> None:
+        """接收本地网站代理转交的 Django sessionid；仅保存在当前会话内存。"""
+        if not isinstance(session_key, str) or re.fullmatch(r"[a-z0-9]{32}", session_key) is None:
+            raise ValueError("Invalid business session")
+        host = urlsplit(self._base_url).hostname
+        domain = "localhost.local" if host == "localhost" else host
+        with self._session_lock:
+            self._cookie_jar.clear()
+            self._csrf_token = None
+            self._cookie_jar.set_cookie(
+                Cookie(
+                    version=0,
+                    name="sessionid",
+                    value=session_key,
+                    port=None,
+                    port_specified=False,
+                    domain=domain,
+                    domain_specified=False,
+                    domain_initial_dot=False,
+                    path="/",
+                    path_specified=True,
+                    secure=urlsplit(self._base_url).scheme == "https",
+                    expires=None,
+                    discard=True,
+                    comment=None,
+                    comment_url=None,
+                    rest={"HttpOnly": None},
+                )
+            )
 
     def clear_session(self) -> None:
         """清除当前实例内的会话 Cookie 和 CSRF token。"""

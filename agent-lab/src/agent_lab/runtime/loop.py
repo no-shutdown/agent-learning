@@ -10,7 +10,7 @@ import json
 import math
 import time
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Literal, Protocol
 
 from ..prompts.loader import load_prompt
@@ -60,11 +60,12 @@ class LoopResult:
 
 
 def run_loop(
-    user_message: str,
+    user_message: str | None,
     *,
     model: ChatModel,
     executor: RuntimeExecutor,
     registry: ToolRegistry,
+    history: Sequence[Mapping[str, Any]] = (),
     max_model_calls: int = DEFAULT_MAX_MODEL_CALLS,
     max_tool_calls: int = DEFAULT_MAX_TOOL_CALLS,
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
@@ -84,7 +85,7 @@ def run_loop(
     每个结果会以带有相同 call_id 的工具消息回填，之后再请求模型决定下一步。
     所有工具调用交给执行器；调用去重、权限和确认不在循环中实现。
     """
-    if not isinstance(user_message, str) or not user_message.strip():
+    if user_message is not None and (not isinstance(user_message, str) or not user_message.strip()):
         raise ValueError("user_message 必须是非空字符串")
     _validate_limit(max_model_calls, "max_model_calls")
     _validate_limit(max_tool_calls, "max_tool_calls")
@@ -93,14 +94,28 @@ def run_loop(
     definitions = registry.definitions()
     prompt = load_prompt()
 
-    messages: list[dict[str, Any]] = [
-        {"role": "system", "content": prompt.text},
-        {"role": "user", "content": user_message.strip()},
-    ]
+    # history 仅由服务端保存的对话状态提供，不从客户端请求接收 role/messages。
+    messages: list[dict[str, Any]] = (
+        json.loads(_json_text(list(history)))
+        if history
+        else [
+            {"role": "system", "content": prompt.text},
+        ]
+    )
+    if user_message is not None:
+        messages.append({"role": "user", "content": user_message.strip()})
     started_at = time.monotonic()
     model_calls = 0
     tool_calls = 0
     seen_call_ids: set[str] = set()
+    for message in messages:
+        if message.get("role") == "tool":
+            record = json.loads(message["content"])
+            if isinstance(record, dict) and isinstance(record.get("call_id"), str):
+                seen_call_ids.add(record["call_id"])
+        for call in message.get("tool_calls", []):
+            if isinstance(call.get("id"), str):
+                seen_call_ids.add(call["id"])
 
     while True:
         if model_calls >= max_model_calls or _remaining_time(started_at, timeout_seconds) <= 0:
@@ -207,6 +222,85 @@ def run_loop(
                 "content": _json_text(result_data),
             }
             messages.append(tool_message)
+
+
+def resume_loop(
+    previous: LoopResult,
+    *,
+    model: ChatModel,
+    executor: RuntimeExecutor,
+    registry: ToolRegistry,
+    timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+    max_model_calls: int = DEFAULT_MAX_MODEL_CALLS,
+    max_tool_calls: int = DEFAULT_MAX_TOOL_CALLS,
+) -> LoopResult:
+    """可信应用完成确认后，先执行保存的原请求，再继续模型循环。
+
+    不从客户端接收新参数替换 pending_calls；暂停期间不消耗执行时限。
+    本次恢复仍使用剩余调用次数。多个写请求逐个取得确认。
+    """
+    _validate_timeout(timeout_seconds)
+    if previous.status != "confirmation_required" or not previous.pending_calls:
+        raise ValueError("没有待恢复的确认请求")
+    started = time.monotonic()
+    messages = json.loads(_json_text(list(previous.messages)))
+    used = previous.tool_calls
+    for index, call in enumerate(previous.pending_calls):
+        remaining = _remaining_time(started, timeout_seconds)
+        if used >= max_tool_calls or remaining <= 0:
+            return replace(
+                previous,
+                status="budget_exhausted",
+                messages=tuple(messages),
+                tool_calls=used,
+                pending_calls=previous.pending_calls[index:],
+            )
+        used += 1
+        execution = executor.execute(
+            call_id=call.call_id,
+            tool_id=call.tool_id,
+            arguments=call.arguments,
+            timeout_seconds=remaining,
+        )
+        try:
+            status, data, confirmation = validate_execution_result(execution, call)
+        except ExecutionProtocolError as error:
+            raise LoopProtocolError(str(error)) from error
+        if status == "confirmation_required":
+            return replace(
+                previous,
+                messages=tuple(messages),
+                tool_calls=used,
+                pending_calls=previous.pending_calls[index:],
+                pending_confirmation=confirmation,
+            )
+        messages.append({"role": "tool", "tool_name": call.tool_id, "content": _json_text(data)})
+    remaining = _remaining_time(started, timeout_seconds)
+    if used >= max_tool_calls or previous.model_calls >= max_model_calls or remaining <= 0:
+        return replace(
+            previous,
+            status="budget_exhausted",
+            messages=tuple(messages),
+            tool_calls=used,
+            pending_calls=(),
+            pending_confirmation=None,
+        )
+    result = run_loop(
+        None,
+        model=model,
+        executor=executor,
+        registry=registry,
+        history=messages,
+        timeout_seconds=remaining,
+        max_model_calls=max_model_calls - previous.model_calls,
+        max_tool_calls=max_tool_calls - used,
+    )
+    return replace(
+        result,
+        model_calls=result.model_calls + previous.model_calls,
+        tool_calls=result.tool_calls + used,
+        prompt_version=previous.prompt_version,
+    )
 
 
 def _assistant_message(response: Mapping[str, Any]) -> dict[str, Any]:
@@ -343,4 +437,5 @@ __all__ = [
     "RuntimeExecutor",
     "ToolCall",
     "run_loop",
+    "resume_loop",
 ]

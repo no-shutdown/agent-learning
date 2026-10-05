@@ -27,6 +27,7 @@ class ConfigTest(unittest.TestCase):
             "MODEL_BASE_URL": ["", "http://localhost:bad", "http://localhost?secret=value"],
             "MODEL_NAME": ["", "   "],
             "BUSINESS_API_TIMEOUT_SECONDS": ["0", "-1", "nan", "inf", ""],
+            "MODEL_CONTEXT_TOKENS": ["0", "1.5", "", "1023", "131073", "nan"],
             "MODEL_TIMEOUT_SECONDS": ["0", "-1", "nan", "inf", ""],
         }
         for name, values in cases.items():

@@ -99,12 +99,16 @@ class OllamaClient:
         model: str | None = None,
         *,
         timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+        context_tokens: int | None = None,
     ) -> None:
         configured_url = DEFAULT_BASE_URL if base_url is None else base_url
         configured_model = DEFAULT_MODEL if model is None else model
         self._base_url = self.validate_base_url(configured_url)
         self._model = self.validate_model(configured_model)
         self._timeout_seconds = self.validate_timeout(timeout_seconds)
+        if context_tokens is not None and (type(context_tokens) is not int or context_tokens <= 0):
+            raise ValueError("context_tokens must be a positive integer")
+        self._context_tokens = context_tokens
         self._opener = build_opener(_NoRedirectHandler())
 
     @property
@@ -159,10 +163,12 @@ class OllamaClient:
         }
         if tools is not None:
             payload["tools"] = self._mapping_sequence(tools, "tools", allow_empty=True)
+        if self._context_tokens is not None:
+            payload["options"] = {"num_ctx": self._context_tokens}
         if options is not None:
             if not isinstance(options, Mapping):
                 raise TypeError("options must be a mapping")
-            payload["options"] = dict(options)
+            payload["options"] = {**payload.get("options", {}), **options}
         if format is not None:
             if not isinstance(format, (str, Mapping)):
                 raise TypeError("format must be a string or mapping")
@@ -264,9 +270,7 @@ class OllamaClient:
         definitions: Sequence[Mapping[str, Any]],
     ) -> list[dict[str, Any]]:
         """将 ToolRegistry 描述转换为 Ollama /api/chat 所需的工具对象。"""
-        source = OllamaClient._mapping_sequence(
-            definitions, "tool_definitions", allow_empty=True
-        )
+        source = OllamaClient._mapping_sequence(definitions, "tool_definitions", allow_empty=True)
         formatted: list[dict[str, Any]] = []
         names: set[str] = set()
         for index, definition in enumerate(source):

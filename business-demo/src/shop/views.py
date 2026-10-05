@@ -1,9 +1,6 @@
 from functools import partial
 import json
 import re
-from urllib.request import Request, urlopen
-from urllib.error import URLError
-from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
@@ -15,6 +12,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.views.decorators.http import require_GET, require_POST
 from .models import Address, Order, Product, Operation
 from . import services as s
+from .agent_proxy import proxy_agent
 
 
 def csrf_failure(request, reason=""):
@@ -215,26 +213,8 @@ def dispatch(request, route):
         return JsonResponse({"status": "logged_out"})
     if route == "me" and method == "GET":
         return JsonResponse({"username": actor.username, "is_staff": actor.is_staff})
-    if route == "assistant/chat" and method == "POST":
-        data = body(request)
-        s.fields(data, ("message",), ("message",))
-        message = s.text(data["message"], "message", 2000)
-        try:
-            req = Request(
-                settings.AGENT_URL,
-                data=json.dumps({"message": message}).encode(),
-                headers={"Content-Type": "application/json"},
-                method="POST",
-            )
-            with urlopen(req, timeout=5) as response:
-                result = json.loads(response.read(65536))
-            if not isinstance(result, dict) or not isinstance(result.get("reply"), str):
-                raise ValueError("invalid agent response")
-        except (URLError, TimeoutError, ValueError):
-            raise s.BusinessError(
-                "agent_unavailable", "Agent 空服务尚未启动，请先启动 agent-lab", 503
-            )
-        return JsonResponse({"reply": result["reply"], "implemented": False})
+    if route in ("assistant/chat", "assistant/confirm") and method == "POST":
+        return proxy_agent(request, body(request), confirm=route.endswith("/confirm"))
     if method == "GET":
         if route in ("products", "manage/products"):
             if route.startswith("manage"):

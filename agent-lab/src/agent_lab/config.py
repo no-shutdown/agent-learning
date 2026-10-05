@@ -23,6 +23,7 @@ class Settings:
     model_base_url: str
     model_name: str
     model_timeout_seconds: float
+    model_context_tokens: int = 16384
 
 
 def load_settings(environ: Mapping[str, str] | None = None) -> Settings:
@@ -55,6 +56,14 @@ def load_settings(environ: Mapping[str, str] | None = None) -> Settings:
             raise ValueError()
         return number
 
+    def context_tokens(value):
+        if not isinstance(value, str) or not value.isascii() or not value.isdigit():
+            raise ValueError()
+        result = int(value)
+        if not 1024 <= result <= 131072:
+            raise ValueError()
+        return result
+
     return Settings(
         agent_port=read("AGENT_PORT", "8001", port),
         business_api_base_url=read(
@@ -64,6 +73,7 @@ def load_settings(environ: Mapping[str, str] | None = None) -> Settings:
             "BUSINESS_API_TIMEOUT_SECONDS", str(BUSINESS_TIMEOUT), timeout
         ),
         model_base_url=read("MODEL_BASE_URL", DEFAULT_BASE_URL, OllamaClient.validate_base_url),
+        model_context_tokens=read("MODEL_CONTEXT_TOKENS", "16384", context_tokens),
         model_name=read("MODEL_NAME", DEFAULT_MODEL, OllamaClient.validate_model),
         model_timeout_seconds=read("MODEL_TIMEOUT_SECONDS", str(MODEL_TIMEOUT), timeout),
     )

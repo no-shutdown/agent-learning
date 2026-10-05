@@ -265,7 +265,7 @@ class BusinessTests(TestCase):
     def test_agent_unavailable_is_explicit(self):
         from urllib.error import URLError
 
-        with patch("shop.views.urlopen", side_effect=URLError("offline")):
+        with patch("shop.agent_proxy.open_agent", side_effect=URLError("offline")):
             r = self.post("assistant/chat", {"message": "你好"})
             self.assertEqual(r.status_code, 503)
             self.assertEqual(r.json()["error"]["code"], "agent_unavailable")

@@ -1,6 +1,6 @@
 # Agent Lab：学习项目骨架
 
-以 LLM 选择工具、程序受控执行、真实结果反馈的循环为主线。使用 Python 标准库保留可运行的 HTTP 空服务；业务 HTTP 客户端、工具层和 Ollama 模型适配器已实现，Agent 循环及工具执行器已实现，HTTP 接入和确认交互仍待练习。
+以 LLM 选择工具、程序受控执行、真实结果反馈的循环为主线。使用 Python 标准库实现 HTTP 服务；业务客户端、工具层、Ollama 模型适配器、Agent 循环、执行器及网站聊天/确认入口已接通。
 
 ## 启动
 
@@ -9,16 +9,16 @@ cd /Users/colin/code/my/agent-learning/agent-lab
 make run
 ```
 
-默认监听 `127.0.0.1:8001`。GET `/health` 返回服务状态；POST `/chat` 接受 `{"message":"你好"}`，校验输入后返回固定的“Agent 尚未实现”。网站 AI 助手面板和父目录的启动网站脚本保持兼容。
+默认监听 `127.0.0.1:8001`。先启动 Ollama 与 business-demo，登录网站后打开 AI 助手即可聊天。GET `/health` 仅检查入口存活；POST `/chat` 调用模型和执行器，POST `/confirm` 接续确认或取消。业务身份来自网站服务端转交的登录会话，不能直接发一个 message 就操作业务。协议与限制见 [HTTP 入口说明](docs/http-entry.md)。
 
 重建虚拟环境用 `make setup`；`make check` 检查 src、evals 和 tests 的语法；`make test` 运行配置和工具层测试。当前没有第三方运行依赖。`pyproject.toml` 提供项目、打包和 Ruff 配置，不要求现在安装框架或 SDK。
 
-可复制 `.env.example` 为 `.env`；`make run` 与父目录启动器会加载它。`config.load_settings()` 统一读取并校验环境变量，启动入口用其中的 `AGENT_PORT` 启动占位服务；业务和模型配置供后续运行链显式注入客户端。直接运行 Python 时需自行注入环境变量，配置模块不自动加载 `.env`。Ollama 由 App 独立启动，默认 API 地址为 `http://127.0.0.1:11434`。
+可复制 `.env.example` 为 `.env`；`make run` 与父目录启动器会加载它。`config.load_settings()` 统一读取并校验环境变量，启动入口用其中的 `AGENT_PORT` 启动服务，并将业务和模型配置显式注入客户端。直接运行 Python 时需自行注入环境变量，配置模块不自动加载 `.env`。Ollama 由 App 独立启动，默认 API 地址为 `http://127.0.0.1:11434`。
 
 ## 配置与数据契约
 
 统一配置键：`AGENT_PORT`、`BUSINESS_API_BASE_URL`、`BUSINESS_API_TIMEOUT_SECONDS`、
-`MODEL_BASE_URL`、`MODEL_NAME`、`MODEL_TIMEOUT_SECONDS`，默认值见 `.env.example`。
+`MODEL_BASE_URL`、`MODEL_NAME`、`MODEL_TIMEOUT_SECONDS`、`MODEL_CONTEXT_TOKENS`，默认值见 `.env.example`。
 地址、模型名不能为空；端口范围为 1～65535，超时必须为有限正数（秒）。
 无效配置抛出 `ConfigError`，错误信息只含变量名，不回显配置值。
 
@@ -46,7 +46,7 @@ model = OllamaClient(
 本地 Ollama 客户端未实现 API Key 认证，示例不再保留未使用的 `MODEL_API_KEY`。
 
 顶层空白 `schemas.py` 已移除。业务请求/响应、模型协议、工具契约仍分别归属
-`clients/`、`models/`、`tools/`。Agent 运行协议待实现时放在 `runtime/`，
+`clients/`、`models/`、`tools/`。Agent 运行协议放在 `runtime/`，
 不提前创建通用协议集合；`TypedDict` 类型声明不等于运行时校验。
 
 ## 模型接入方式
@@ -62,7 +62,7 @@ src/
 ├── main.py                   # 兼容旧启动命令，转发到包入口
 └── agent_lab/
     ├── __init__.py
-    ├── main.py               # 已有的最小 HTTP 服务
+    ├── main.py               # HTTP 接入、依赖组装和内存会话
     ├── config.py             # 应用配置读取与校验（已实现）
     ├── runtime/
     │   ├── loop.py           # 原生 tool_calls 循环，需注入执行器
@@ -103,9 +103,9 @@ Makefile
 README.md
 ```
 
-`clients/` 按业务模块提供 business-demo API v1 的类型化 HTTP 客户端，由包的 `__init__.py` 统一导出：请求和响应使用泛型包装，各端点使用独立的 TypedDict 契约，并由客户端管理会话 Cookie、CSRF token、幂等键和超时。工具层提供 18 个业务动作；注册表只管理工具目录，执行控制由 runtime/executor.py 实现。使用方法与职责边界见 [工具说明](docs/tools.md)。其余待实现模块仍只含职责说明；HTTP 入口尚未连接模型循环；循环本身已加载系统提示。执行 `evals/run.py` 会明确提示未实现并退出，不会产生虚假的通过结果。
+`clients/` 按业务模块提供 business-demo API v1 的类型化 HTTP 客户端，由包的 `__init__.py` 统一导出：请求和响应使用泛型包装，各端点使用独立的 TypedDict 契约，并由客户端管理会话 Cookie、CSRF token、幂等键和超时。工具层提供 18 个业务动作；注册表只管理工具目录，执行控制由 runtime/executor.py 实现。使用方法与职责边界见 [工具说明](docs/tools.md)。其余待实现模块仍只含职责说明；HTTP 入口已连接模型循环及写入确认；循环本身已加载系统提示。执行 `evals/run.py` 会明确提示未实现并退出，不会产生虚假的通过结果。
 
-## 目标运行结构（尚未全部接通）
+## 当前运行结构
 
 ```text
 HTTP 入口 → 上下文与可信任务状态 → LLM
@@ -119,7 +119,7 @@ HTTP 入口 → 上下文与可信任务状态 → LLM
                               工具结果交回 LLM，继续循环
 ```
 
-`runtime/limits.py` 在每轮和工具执行阶段限制次数及时间；`runtime/tracing.py` 记录运行过程。它们属于程序控制，不是可被模型跳过的工具。
+次数和时间限制目前由 loop/executor 实现；`runtime/limits.py` 与 `runtime/tracing.py` 仍为预留模块，尚未抽取统一预算或实现运行追踪。它们属于程序控制，不是可被模型跳过的工具。
 
 不设置独立的“分类后进入固定业务分支”入口。未来需要确定性路由时，可在 `tools/routing.py` 定义能力，让模型按需调用；现在没有路由实现或路由工具注册。路由工具不能绕过执行控制或隐藏未经确认的写操作。业务权限与最终写入检查继续由 business-demo 后端保证。
 

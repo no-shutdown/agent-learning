@@ -42,11 +42,80 @@ document.querySelectorAll('form[data-api]').forEach(form => {
   });
 });
 const chatForm = document.getElementById('chat-form');
-if(chatForm) chatForm.addEventListener('submit', async e => {
-  e.preventDefault(); const input = document.getElementById('chat-input'); const message = input.value.trim(); if(!message) return;
-  const add = (text,role) => {const el = document.createElement('div'); el.className = 'bubble ' + role; el.textContent = text; document.getElementById('chat-log').appendChild(el); el.scrollIntoView({block:'nearest'});};
-  add(message,'user'); input.value=''; const button = chatForm.querySelector('button'); button.disabled=true;
-  try {const response = await fetch('/api/v1/assistant/chat', {method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':csrf()},body:JSON.stringify({message})}); const data=await response.json(); add(response.ok?data.reply:data.error.message,'assistant');}
-  catch {add('连接失败，请检查网站与 Agent 服务。','assistant');}
-  finally {button.disabled=false;input.focus();}
-});
+if (chatForm) {
+  const conversationId = operationKey();
+  const input = document.getElementById('chat-input');
+  const sendButton = chatForm.querySelector('button');
+  let pending = false;
+  const add = (text, role) => {
+    const el = document.createElement('div');
+    el.className = 'bubble ' + role;
+    el.textContent = text;
+    document.getElementById('chat-log').appendChild(el);
+    el.scrollIntoView({block: 'nearest'});
+    return el;
+  };
+  async function send(route, payload) {
+    const response = await fetch('/api/v1/assistant/' + route, {
+      method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrf()},
+      body: JSON.stringify({conversation_id: conversationId, ...payload})
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error?.message || '请求失败');
+    return data;
+  }
+  function show(data) {
+    add(data.reply, 'assistant');
+    pending = data.status === 'confirmation_required';
+    if (!pending) return;
+    const box = add('', 'assistant');
+    const details = document.createElement('pre');
+    details.style.whiteSpace = 'pre-wrap';
+    details.style.overflowWrap = 'anywhere';
+    details.textContent = data.confirmation.description + '\n' + JSON.stringify(data.confirmation.arguments, null, 2) + '\n请在约 ' + Math.ceil(data.confirmation.expires_in_seconds) + ' 秒内确认，过期请取消后重新查询。';
+    box.appendChild(details);
+    const buttons = [true, false].map(accept => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = accept ? '确认执行' : '取消操作';
+      const requestId = operationKey(); // 网络异常后保持编号，避免重复执行。
+      button.onclick = async () => {
+        buttons.forEach(b => b.disabled = true);
+        try {
+          const reply = await send('confirm', {request_id: requestId, confirmation_id: data.confirmation_id, accept});
+          show(reply);
+          box.remove();
+        } catch (error) {
+          add(error.message + '。可用原按钮重试；不要另开对话重复写入。', 'assistant');
+          buttons.forEach(b => b.disabled = false);
+        } finally {
+          sendButton.disabled = pending;
+          input.disabled = pending;
+        }
+      };
+      box.appendChild(button);
+      return button;
+    });
+  }
+  chatForm.addEventListener('submit', async e => {
+    e.preventDefault();
+    const message = input.value.trim();
+    if (!message || pending) return;
+    add(message, 'user'); input.value = '';
+    sendButton.disabled = true; input.disabled = true;
+    const payload = {message, request_id: operationKey()};
+    try { show(await send('chat', payload)); }
+    catch (error) {
+      const box = add(error.message, 'assistant');
+      const retry = document.createElement('button');
+      retry.type = 'button'; retry.textContent = '重试原请求';
+      retry.onclick = async () => {
+        retry.disabled = true; sendButton.disabled = true; input.disabled = true;
+        try { show(await send('chat', payload)); box.remove(); }
+        catch (err) { add(err.message, 'assistant'); retry.disabled = false; }
+        finally { sendButton.disabled = pending; input.disabled = pending; }
+      };
+      box.appendChild(retry);
+    } finally { sendButton.disabled = pending; input.disabled = pending; if (!pending) input.focus(); }
+  });
+}

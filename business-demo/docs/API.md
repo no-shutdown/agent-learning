@@ -9,7 +9,7 @@
 3. 登录成功后会话 cookie 与 CSRF token 会轮换。保存 cookie 和此次响应中的新 `csrf_token`。
 4. 后续请求发送该会话 cookie；POST/PUT 另外发送 `X-CSRFToken`。登录和退出也需要 CSRF。
 
-身份来自登录会话，业务接口不接受 `user_id`、`owner_id` 或任意身份参数。Agent 将来需要为用户维持独立、受信的会话，不能把模型生成的用户编号当成授权。不要把管理员会话交给普通用户的助手。初始 Agent 不实现会话委派。
+身份来自登录会话，业务接口不接受 `user_id`、`owner_id` 或任意身份参数。Agent 为用户维持独立、受信的会话，不能把模型生成的用户编号当成授权。不要把管理员会话交给普通用户的助手。网站仅向本机 Agent 转发当前已验证的 Django 会话，Agent 再通过 `/me` 验证身份。
 
 GET `/me` 返回 username 和 is_staff；POST `/auth/logout` 退出；GET `/health` 无需登录。
 
@@ -76,4 +76,8 @@ GET `/me` 返回 username 和 is_staff；POST `/auth/logout` 退出；GET `/heal
 
 ## AI 面板连接
 
-POST `/assistant/chat` 接受 `{"message":"你好"}`，需要登录与 CSRF。网站只把 message 发给 `http://127.0.0.1:8001/chat`，不传密码、cookie 或业务数据。返回占位回复和 `implemented:false`。对话不持久化，页面刷新后清空。
+POST `/assistant/chat` 接受 `{"message":"你好","conversation_id":"page1","request_id":"request1"}`，需要登录与 CSRF。网站转发到本机 Agent `/chat`；`X-Business-Session` 仅从已验证的 Django 请求会话生成，不接受 JSON 中的身份、Cookie 或历史消息。旧调用只传 message 仍兼容，但无请求编号的客户端不能安全重试。
+
+回复包含 `reply/status/implemented:true`。`status=confirmation_required` 时另含 `confirmation_id` 和 `confirmation`（具体工具、参数、说明及有效期）。用户点击按钮后，POST `/assistant/confirm`：`{"conversation_id":"page1","request_id":"request2","confirmation_id":"服务端返回的令牌","accept":true}`；取消用 `accept:false`。确认与原参数绑定，不能在确认请求中改参数。客户端重试保持相同 request_id 与原内容；新请求必须换编号。
+
+Agent 内存保存会话，页面刷新开始新对话，进程重启后无法恢复。`AGENT_URL` 只允许本机地址且禁止重定向；默认 `AGENT_TIMEOUT_SECONDS=150`，应大于 Agent 的模型/循环时限（默认 120 秒），给冷启动留出等待时间。503 表示连接失败或超时，不证明写入失败；请先核实操作记录。

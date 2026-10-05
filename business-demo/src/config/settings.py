@@ -69,3 +69,5 @@ CSRF_COOKIE_SAMESITE = "Strict"
 CSRF_FAILURE_VIEW = "shop.views.csrf_failure"
 AGENT_URL = os.environ.get("AGENT_URL", "http://127.0.0.1:8001/chat")
 DATA_UPLOAD_MAX_MEMORY_SIZE = 65536
+
+AGENT_TIMEOUT_SECONDS = float(os.environ.get("AGENT_TIMEOUT_SECONDS", "150"))

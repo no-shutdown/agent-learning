@@ -51,7 +51,7 @@ result = executor.execute(
 `confirm` 是可信应用接口，不是模型工具，不是解析到用户文字“确认”就可调用。
 确认记录绑定当前任务的用户、工具和完整参数，默认有效 300 秒。改变相同 call_id 的参数会报 call_conflict；新编号的新参数会要求新确认。确认过期需重新核实业务状态并启动新任务。
 
-本次没有实现确认页面、HTTP 确认接口或循环恢复接口。loop 在需要确认时返回 pending_calls 和 pending_confirmation；上层未来需管理用户交互及恢复，不能在收到 pending 后自动确认。
+网站已提供确认/取消按钮，HTTP 入口保存 pending_calls 和 pending_confirmation。收到可信确认后先调用 executor.confirm，再用 resume_loop 执行原参数并接续模型。多个写请求逐个确认；取消时未执行请求不会继续。详见 [HTTP 入口](http-entry.md)。
 
 ## 重复请求及结果
 

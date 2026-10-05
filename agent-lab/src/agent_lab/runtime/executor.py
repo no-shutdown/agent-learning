@@ -1,5 +1,7 @@
 """单任务、单用户的受控工具执行器；不调用模型、不组织消息历史。"""
 
+from .tracing import traced
+
 from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass
@@ -64,6 +66,7 @@ class ToolExecutor:
         self._writes: dict[str, _Call] = {}
         self._lock = threading.RLock()
 
+    @traced("confirmation", ("call_id",))
     def confirm(self, call_id: str, *, username: str) -> None:
         """可信 UI 展示 pending 参数并验证用户确认事件后调用；不是模型能力。
 
@@ -80,6 +83,7 @@ class ToolExecutor:
                 raise ValueError("确认已过期，请发起新的任务并重新核实参数")
             call.approved = True
 
+    @traced("tool", ("call_id", "tool_id", "arguments", "timeout_seconds"))
     def execute(
         self, *, call_id: str, tool_id: str, arguments: Mapping, timeout_seconds: float
     ) -> dict:

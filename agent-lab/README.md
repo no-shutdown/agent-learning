@@ -18,7 +18,7 @@ make run
 ## 配置与数据契约
 
 统一配置键：`AGENT_PORT`、`BUSINESS_API_BASE_URL`、`BUSINESS_API_TIMEOUT_SECONDS`、
-`MODEL_BASE_URL`、`MODEL_NAME`、`MODEL_TIMEOUT_SECONDS`、`MODEL_CONTEXT_TOKENS`，默认值见 `.env.example`。
+`MODEL_BASE_URL`、`MODEL_NAME`、`MODEL_TIMEOUT_SECONDS`、`MODEL_CONTEXT_TOKENS`、`AGENT_LOG_DIR`，默认值见 `.env.example`。
 地址、模型名不能为空；端口范围为 1～65535，超时必须为有限正数（秒）。
 无效配置抛出 `ConfigError`，错误信息只含变量名，不回显配置值。
 
@@ -71,7 +71,7 @@ src/
     │   ├── executor.py       # 工具校验、确认、去重、执行及结果转换
     │   ├── contracts.py      # 工具请求、执行结果及协议校验
     │   ├── limits.py         # 调用预算、超时和停止条件（待实现）
-    │   └── tracing.py        # 运行与工具调用记录（待实现）
+    │   └── tracing.py        # 脱敏 JSONL 日志、关联编号、耗时与文件轮转
     ├── models/
     │   └── ollama.py         # Ollama 聊天 API 客户端
     ├── tools/
@@ -119,7 +119,7 @@ HTTP 入口 → 上下文与可信任务状态 → LLM
                               工具结果交回 LLM，继续循环
 ```
 
-次数和时间限制目前由 loop/executor 实现；`runtime/limits.py` 与 `runtime/tracing.py` 仍为预留模块，尚未抽取统一预算或实现运行追踪。它们属于程序控制，不是可被模型跳过的工具。
+次数和时间限制目前由 loop/executor 实现；`runtime/limits.py` 仍为预留模块，尚未抽取统一预算。`runtime/tracing.py` 已实现本地运行日志。它们属于程序控制，不是可被模型跳过的工具。
 
 不设置独立的“分类后进入固定业务分支”入口。未来需要确定性路由时，可在 `tools/routing.py` 定义能力，让模型按需调用；现在没有路由实现或路由工具注册。路由工具不能绕过执行控制或隐藏未经确认的写操作。业务权限与最终写入检查继续由 business-demo 后端保证。
 
@@ -130,3 +130,12 @@ HTTP 入口 → 上下文与可信任务状态 → LLM
 每次只实现一个具体能力，先动手，遇到困难先寻求提示。使用固定输入比较改动，记录提示、模型、数据与程序问题。提示和代码先用 Git 管理；之后由运行记录关联版本、模型参数和实际结果，无需预先建立复杂发布平台。
 
 业务工具必须调用 business-demo 的 HTTP API；身份权限、参数校验和可靠写入由程序保证。不要直接读取业务数据库，不在这里提前搭建 RAG、长期记忆或多 Agent。不保存真实密钥或未经脱敏的个人数据。
+
+## 查看运行日志
+
+重启 `make run` 后，终端会输出每一步 JSON 日志，同时保存到 `agent-lab/runs/logs/agent.jsonl`。记录用户输入、每次模型请求的 messages/tools/参数、模型回复、工具参数与结果、确认/取消、重放和异常类型。具体字段、脱敏范围及关联方式见 [运行日志](docs/tracing.md)。
+
+```sh
+# 在 agent-lab 目录内，另开终端查看
+tail -f runs/logs/agent.jsonl
+```

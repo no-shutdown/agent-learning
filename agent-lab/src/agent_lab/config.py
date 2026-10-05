@@ -4,11 +4,15 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 import math
 import os
+from pathlib import Path
 
 from .clients import BusinessApiTransport, DEFAULT_API_BASE_URL
 from .clients import DEFAULT_TIMEOUT_SECONDS as BUSINESS_TIMEOUT
 from .models import DEFAULT_BASE_URL, DEFAULT_MODEL, OllamaClient
 from .models import DEFAULT_TIMEOUT_SECONDS as MODEL_TIMEOUT
+
+
+DEFAULT_LOG_DIR = str(Path(__file__).resolve().parents[2] / "runs" / "logs")
 
 
 class ConfigError(ValueError):
@@ -24,6 +28,7 @@ class Settings:
     model_name: str
     model_timeout_seconds: float
     model_context_tokens: int = 16384
+    log_dir: str = DEFAULT_LOG_DIR
 
 
 def load_settings(environ: Mapping[str, str] | None = None) -> Settings:
@@ -64,7 +69,13 @@ def load_settings(environ: Mapping[str, str] | None = None) -> Settings:
             raise ValueError()
         return result
 
+    def log_dir(value):
+        if not isinstance(value, str) or not value.strip() or "\0" in value:
+            raise ValueError()
+        return str(Path(value).expanduser().resolve())
+
     return Settings(
+        log_dir=read("AGENT_LOG_DIR", DEFAULT_LOG_DIR, log_dir),
         agent_port=read("AGENT_PORT", "8001", port),
         business_api_base_url=read(
             "BUSINESS_API_BASE_URL", DEFAULT_API_BASE_URL, BusinessApiTransport.validate_base_url

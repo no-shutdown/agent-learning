@@ -14,6 +14,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Literal, Protocol
 
 from ..prompts.loader import load_prompt
+from .tracing import emit
 from ..tools.registry import ToolRegistry
 from .contracts import ExecutionProtocolError, RuntimeExecutor, ToolCall, validate_execution_result
 
@@ -93,6 +94,14 @@ def run_loop(
 
     definitions = registry.definitions()
     prompt = load_prompt()
+    emit(
+        "loop.started",
+        prompt_version=prompt.version,
+        history_messages=len(history),
+        max_model_calls=max_model_calls,
+        max_tool_calls=max_tool_calls,
+        timeout_seconds=timeout_seconds,
+    )
 
     # history 仅由服务端保存的对话状态提供，不从客户端请求接收 role/messages。
     messages: list[dict[str, Any]] = (
@@ -242,6 +251,13 @@ def resume_loop(
     _validate_timeout(timeout_seconds)
     if previous.status != "confirmation_required" or not previous.pending_calls:
         raise ValueError("没有待恢复的确认请求")
+    emit(
+        "loop.resumed",
+        prompt_version=previous.prompt_version,
+        pending_calls=[
+            {"call_id": c.call_id, "tool_id": c.tool_id} for c in previous.pending_calls
+        ],
+    )
     started = time.monotonic()
     messages = json.loads(_json_text(list(previous.messages)))
     used = previous.tool_calls

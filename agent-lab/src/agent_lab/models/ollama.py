@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ..runtime.tracing import span
+
 import json
 import math
 import socket
@@ -208,8 +210,10 @@ class OllamaClient:
             },
             method="POST",
         )
-        response_data = self._open(request, timeout_seconds=request_timeout)
-        return self._validate_response(response_data)
+        with span("llm", payload=payload, timeout_seconds=request_timeout) as done:
+            response_data = self._open(request, timeout_seconds=request_timeout)
+            done(response_data)
+            return self._validate_response(response_data)
 
     @staticmethod
     def validate_base_url(value: str) -> str:

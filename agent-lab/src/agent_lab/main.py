@@ -15,6 +15,7 @@ from .models import OllamaClient, OllamaError
 from .runtime.executor import ToolExecutor
 from .runtime.loop import LoopError, run_loop, resume_loop
 from .tools import ALL_TOOLS, ToolRegistry
+from .runtime.tracing import configure_logging, emit, span, trace_context, set_context
 
 
 class RequestError(Exception):
@@ -32,6 +33,7 @@ class Conversation:
     executor: object = None
     registry: object = None
     confirmation_id: str | None = None
+    task_id: str | None = None
     replies: dict = field(default_factory=dict)
 
 
@@ -75,6 +77,31 @@ class AgentApplication:
             return state
 
     def handle(self, route, session_key, data):
+        ids = (
+            {key: data.get(key) for key in ("conversation_id", "request_id")}
+            if isinstance(data, dict)
+            else {}
+        )
+        with trace_context(
+            trace_id=secrets.token_hex(16),
+            **ids,
+            sensitive_values=(
+                session_key,
+                data.get("confirmation_id") if isinstance(data, dict) else None,
+            ),
+        ):
+            # 不记录 HTTP 头、会话键或任意额外的客户端字段。
+            inputs = (
+                {key: data[key] for key in ("message", "accept") if key in data}
+                if isinstance(data, dict)
+                else {}
+            )
+            with span("request", route=route, input=inputs) as done:
+                result = self._handle(route, session_key, data)
+                done(result)
+                return result
+
+    def _handle(self, route, session_key, data):
         required = {"conversation_id", "request_id"}
         required |= {"message"} if route == "/chat" else {"confirmation_id", "accept"}
         if not isinstance(data, dict) or set(data) != required:
@@ -109,12 +136,14 @@ class AgentApplication:
                 or type(identity.get("is_staff")) is not bool
             ):
                 raise RequestError(502, "invalid_identity", "业务服务身份响应异常")
+            emit("identity.verified", is_staff=identity["is_staff"])
             request_key = data["request_id"]
             fingerprint = json.dumps([route, data], sort_keys=True, ensure_ascii=False)
             if request_key in state.replies:
                 old, reply = state.replies[request_key]
                 if old != fingerprint:
                     raise RequestError(409, "request_conflict", "同一请求编号不能修改内容")
+                emit("request.replayed")
                 return reply
             if len(state.replies) >= 50:
                 raise RequestError(
@@ -123,7 +152,8 @@ class AgentApplication:
             # 异常后同一请求也不能隐式重复执行；只缓存公开的错误，不缓存凭据。
             try:
                 reply = self._turn(state, identity, route, data)
-            except (OllamaError, LoopError):
+            except (OllamaError, LoopError) as error:
+                emit("agent.error", error_type=type(error).__name__)
                 reply = {
                     "reply": "模型调用失败或响应异常。若刚确认过写入，请先核实操作记录，不要重复提交。",
                     "status": "error",
@@ -141,6 +171,8 @@ class AgentApplication:
                 raise RequestError(409, "confirmation_pending", "请先确认或取消页面中的待处理操作")
             if len(state.history) > 80:
                 raise RequestError(409, "conversation_limit", "对话过长，请刷新页面开始新对话")
+            state.task_id = secrets.token_hex(16)
+            set_context(task_id=state.task_id)
             registry = ToolRegistry(t for t in ALL_TOOLS if not t.admin or identity["is_staff"])
             executor = ToolExecutor(state.transport, registry, username=identity["username"])
             state.registry, state.executor = registry, executor
@@ -157,6 +189,8 @@ class AgentApplication:
                 data["confirmation_id"], state.confirmation_id
             ):
                 raise RequestError(409, "confirmation_expired", "确认已失效或已处理")
+            set_context(task_id=state.task_id)
+            emit("confirmation.received", accept=data["accept"])
             previous = state.pending
             if not data["accept"]:
                 messages = list(previous.messages)
@@ -201,6 +235,13 @@ class AgentApplication:
                 registry=state.registry,
                 timeout_seconds=self.settings.model_timeout_seconds,
             )
+        emit(
+            "loop.finished",
+            status=result.status,
+            model_calls=result.model_calls,
+            tool_calls=result.tool_calls,
+            prompt_version=result.prompt_version,
+        )
         if result.status == "confirmation_required":
             state.pending = result
             state.confirmation_id = secrets.token_urlsafe(24)
@@ -222,7 +263,12 @@ class AgentApplication:
 
 
 class Handler(BaseHTTPRequestHandler):
+    def log_message(self, format, *args):
+        # 默认访问日志含原始 URL；避免意外记录查询参数中的凭据。
+        pass
+
     def respond(self, status, data):
+        emit("http.response", status_code=status)
         payload = json.dumps(data, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -285,13 +331,21 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     settings = load_settings()
+    log_path = configure_logging(settings.log_dir)
     server = ThreadingHTTPServer(("127.0.0.1", settings.agent_port), Handler)
     server.application = AgentApplication(settings)
+    emit(
+        "service.started",
+        port=settings.agent_port,
+        model=settings.model_name,
+        log_file=str(log_path),
+    )
     print(f"Agent service: http://127.0.0.1:{settings.agent_port}", flush=True)
     try:
         server.serve_forever()
     finally:
         server.server_close()
+        emit("service.stopped")
 
 
 if __name__ == "__main__":

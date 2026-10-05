@@ -26,6 +26,7 @@ class ConfigTest(unittest.TestCase):
             "BUSINESS_API_BASE_URL": ["", "ftp://localhost", "http://user:secret@localhost"],
             "MODEL_BASE_URL": ["", "http://localhost:bad", "http://localhost?secret=value"],
             "MODEL_NAME": ["", "   "],
+            "AGENT_LOG_DIR": ["", "   ", "bad\0path"],
             "BUSINESS_API_TIMEOUT_SECONDS": ["0", "-1", "nan", "inf", ""],
             "MODEL_CONTEXT_TOKENS": ["0", "1.5", "", "1023", "131073", "nan"],
             "MODEL_TIMEOUT_SECONDS": ["0", "-1", "nan", "inf", ""],
@@ -97,7 +98,11 @@ class ConfigTest(unittest.TestCase):
                     main()
                 server.assert_not_called()
         with patch.dict("os.environ", {"AGENT_PORT": "8123"}, clear=True):
-            with patch("agent_lab.main.ThreadingHTTPServer") as server, patch("builtins.print"):
+            with (
+                patch("agent_lab.main.ThreadingHTTPServer") as server,
+                patch("builtins.print"),
+                patch("agent_lab.main.configure_logging"),
+            ):
                 main()
                 self.assertEqual(server.call_args.args[0], ("127.0.0.1", 8123))
                 server.return_value.serve_forever.assert_called_once()

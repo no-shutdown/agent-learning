@@ -129,7 +129,7 @@ class Tool:
     def invoke(self, transport: BusinessApiTransport, arguments: dict, key: str | None):
         """底层适配调用，保留 ApiResponse 和客户端异常，不是模型执行入口。
 
-        调用前的身份、权限及确认由未来 runtime 负责。这里只检查参数与
+        调用前的身份、权限及确认由 runtime/executor.py 负责。这里只检查参数与
         写请求必需的幂等键，不生成键、不重试、不封装对话消息。
         """
         self.validate(arguments)

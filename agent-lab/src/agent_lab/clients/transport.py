@@ -7,6 +7,8 @@ import math
 import re
 import socket
 import threading
+import time
+from contextlib import contextmanager
 from collections.abc import Mapping
 from decimal import Decimal
 from http.cookiejar import CookieJar
@@ -85,11 +87,10 @@ class BusinessApiTransport:
             raise ValueError("timeout_seconds must be a finite number greater than zero")
         self._timeout_seconds = float(timeout_seconds)
         self._cookie_jar = CookieJar()
-        self._opener = build_opener(
-            _NoRedirectHandler(), HTTPCookieProcessor(self._cookie_jar)
-        )
+        self._opener = build_opener(_NoRedirectHandler(), HTTPCookieProcessor(self._cookie_jar))
         self._csrf_token: str | None = None
         self._session_lock = threading.RLock()
+        self._deadline: float | None = None
 
     @staticmethod
     def validate_base_url(value: str) -> str:
@@ -117,6 +118,40 @@ class BusinessApiTransport:
         elif not path.endswith("/api/v1"):
             raise ValueError("base_url path must end with /api/v1")
         return urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
+
+    @contextmanager
+    def request_budget(self, timeout_seconds: float):
+        """独占当前会话，将本次身份、CSRF 和业务请求限制在同一剩余预算内。
+
+        socket 超时不是可强制取消的全局时钟；每次请求前和读完后还会检查期限。
+        不修改默认超时，退出后恢复。其他会话应使用独立 transport。
+        """
+        if (
+            isinstance(timeout_seconds, bool)
+            or not isinstance(timeout_seconds, (int, float))
+            or not math.isfinite(timeout_seconds)
+            or timeout_seconds <= 0
+        ):
+            raise ValueError("timeout_seconds must be finite and positive")
+        deadline = time.monotonic() + timeout_seconds
+        if not self._session_lock.acquire(timeout=timeout_seconds):
+            raise BusinessApiConnectionError("Session lock timed out")
+        previous = self._deadline
+        self._deadline = min(deadline, previous) if previous is not None else deadline
+        try:
+            self._remaining_timeout()
+            yield
+        finally:
+            self._deadline = previous
+            self._session_lock.release()
+
+    def _remaining_timeout(self) -> float:
+        if self._deadline is None:
+            return self._timeout_seconds
+        remaining = self._deadline - time.monotonic()
+        if remaining <= 0:
+            raise BusinessApiConnectionError("Request budget exhausted")
+        return min(self._timeout_seconds, remaining)
 
     def send(self, request: ApiRequest[Any]) -> ApiResponse[Any]:
         """发送请求并按需附加 CSRF 与幂等请求头。"""
@@ -170,8 +205,9 @@ class BusinessApiTransport:
 
     def _open(self, request: UrlRequest) -> ApiResponse[Any]:
         try:
-            with self._opener.open(request, timeout=self._timeout_seconds) as response:
+            with self._opener.open(request, timeout=self._remaining_timeout()) as response:
                 body = response.read(MAX_RESPONSE_BYTES + 1)
+                self._remaining_timeout()
                 if len(body) > MAX_RESPONSE_BYTES:
                     raise BusinessApiProtocolError("Business API response exceeded size limit")
                 data = self._decode_json(body)
@@ -188,6 +224,8 @@ class BusinessApiTransport:
                         "Business API error response exceeded size limit"
                     )
                 self._raise_http_error(error.code, body)
+            except (TimeoutError, OSError) as read_error:
+                raise BusinessApiConnectionError("Unable to read error response") from read_error
             finally:
                 error.close()
         except (URLError, TimeoutError, socket.timeout, OSError) as error:
@@ -229,14 +267,8 @@ class BusinessApiTransport:
         raise BusinessApiHttpError(status_code, code, message)
 
     def _refresh_csrf_locked(self) -> ApiResponse[Any]:
-        response = self._open(
-            UrlRequest(f"{self._base_url}/auth/csrf", method="GET")
-        )
-        token = (
-            response.data.get("csrf_token")
-            if isinstance(response.data, dict)
-            else None
-        )
+        response = self._open(UrlRequest(f"{self._base_url}/auth/csrf", method="GET"))
+        token = response.data.get("csrf_token") if isinstance(response.data, dict) else None
         if not isinstance(token, str) or not token:
             raise BusinessApiProtocolError("CSRF response did not contain csrf_token")
         self._csrf_token = token

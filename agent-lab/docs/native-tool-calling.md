@@ -27,7 +27,7 @@ response = model.chat_with_tool_definitions(
 `{"role": "tool", "tool_name": "get_order", "content": "..."}`，再请求模型继续。
 普通回复从 `message.content` 读取，仅 `message.tool_calls` 触发执行器。
 正文即使包含旧的 `role/type/data` JSON，也只是文本，不会执行。
-执行器仍为占位；测试使用模拟执行器，HTTP `/chat` 仍是占位回复。
+`ToolExecutor` 已实现，测试包含真实执行器与模拟 HTTP 的接入；HTTP `/chat` 仍是占位回复。
 
 ## Ollama 内部怎样处理 tools
 

@@ -1,6 +1,6 @@
 # Agent Lab：学习项目骨架
 
-以 LLM 选择工具、程序受控执行、真实结果反馈的循环为主线。使用 Python 标准库保留可运行的 HTTP 空服务；业务 HTTP 客户端、工具层和 Ollama 模型适配器已实现，已有可注入执行器的 Agent 循环；真实执行器和 HTTP 接入仍待练习。
+以 LLM 选择工具、程序受控执行、真实结果反馈的循环为主线。使用 Python 标准库保留可运行的 HTTP 空服务；业务 HTTP 客户端、工具层和 Ollama 模型适配器已实现，Agent 循环及工具执行器已实现，HTTP 接入和确认交互仍待练习。
 
 ## 启动
 
@@ -51,7 +51,7 @@ model = OllamaClient(
 
 ## 模型接入方式
 
-由 Ollama App 在本机运行模型并提供 HTTP API。`OllamaClient` 使用标准库调用 `/api/chat`，默认地址为 `http://127.0.0.1:11434`、模型为 `qwen3.5:9b`，应用配置读取 `MODEL_BASE_URL` 和 `MODEL_NAME` 后显式传给客户端；客户端本身不再读取环境变量。通过 `from agent_lab.models import OllamaClient` 导入；`chat(messages, tools=...)` 返回完整模型响应，工具调用由注入的运行时执行器负责，真实执行器尚待实现。原生协议与 Ollama 内部机制见 [工具调用说明](docs/native-tool-calling.md)。
+由 Ollama App 在本机运行模型并提供 HTTP API。`OllamaClient` 使用标准库调用 `/api/chat`，默认地址为 `http://127.0.0.1:11434`、模型为 `qwen3.5:9b`，应用配置读取 `MODEL_BASE_URL` 和 `MODEL_NAME` 后显式传给客户端；客户端本身不再读取环境变量。通过 `from agent_lab.models import OllamaClient` 导入；`chat(messages, tools=...)` 返回完整模型响应，工具调用由注入的运行时执行器负责，`ToolExecutor` 已实现，使用方法见 [执行器说明](docs/executor.md)。原生协议与 Ollama 内部机制见 [工具调用说明](docs/native-tool-calling.md)。
 
 旧的独立 `model-service` 管理项目已删除。Agent 不依赖该项目、Open WebUI 或 Docker；业务操作仍通过 business-demo 的 HTTP API 执行。
 
@@ -68,7 +68,8 @@ src/
     │   ├── loop.py           # 原生 tool_calls 循环，需注入执行器
     │   ├── context.py        # 本轮消息、提示与工具上下文（待实现）
     │   ├── state.py          # 任务及待确认操作状态（待实现）
-    │   ├── executor.py       # 所有工具调用的校验与执行入口（待实现）
+    │   ├── executor.py       # 工具校验、确认、去重、执行及结果转换
+    │   ├── contracts.py      # 工具请求、执行结果及协议校验
     │   ├── limits.py         # 调用预算、超时和停止条件（待实现）
     │   └── tracing.py        # 运行与工具调用记录（待实现）
     ├── models/
@@ -89,7 +90,7 @@ src/
     └── prompts/
         ├── agent.md          # 系统规则，通过 messages 传入模型
         └── loader.py         # 系统提示加载与文本版本（已实现）
-tests/                       # 配置及工具层程序测试
+tests/                       # 配置、工具、执行器及循环接入测试
 evals/
 ├── cases.jsonl              # 空白固定用例集
 └── run.py                   # 评估入口占位，尚不能评估
@@ -102,7 +103,7 @@ Makefile
 README.md
 ```
 
-`clients/` 按业务模块提供 business-demo API v1 的类型化 HTTP 客户端，由包的 `__init__.py` 统一导出：请求和响应使用泛型包装，各端点使用独立的 TypedDict 契约，并由客户端管理会话 Cookie、CSRF token、幂等键和超时。工具层提供 18 个业务动作；注册表只管理工具目录，执行控制尚待 runtime 实现。使用方法与职责边界见 [工具说明](docs/tools.md)。其余待实现模块仍只含职责说明；HTTP 入口尚未连接模型循环；循环本身已加载系统提示。执行 `evals/run.py` 会明确提示未实现并退出，不会产生虚假的通过结果。
+`clients/` 按业务模块提供 business-demo API v1 的类型化 HTTP 客户端，由包的 `__init__.py` 统一导出：请求和响应使用泛型包装，各端点使用独立的 TypedDict 契约，并由客户端管理会话 Cookie、CSRF token、幂等键和超时。工具层提供 18 个业务动作；注册表只管理工具目录，执行控制由 runtime/executor.py 实现。使用方法与职责边界见 [工具说明](docs/tools.md)。其余待实现模块仍只含职责说明；HTTP 入口尚未连接模型循环；循环本身已加载系统提示。执行 `evals/run.py` 会明确提示未实现并退出，不会产生虚假的通过结果。
 
 ## 目标运行结构（尚未全部接通）
 

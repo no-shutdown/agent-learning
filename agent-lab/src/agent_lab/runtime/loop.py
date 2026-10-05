@@ -15,6 +15,7 @@ from typing import Any, Literal, Protocol
 
 from ..prompts.loader import load_prompt
 from ..tools.registry import ToolRegistry
+from .contracts import ExecutionProtocolError, RuntimeExecutor, ToolCall, validate_execution_result
 
 
 DEFAULT_MAX_MODEL_CALLS = 8
@@ -22,7 +23,6 @@ DEFAULT_MAX_TOOL_CALLS = 16
 DEFAULT_TIMEOUT_SECONDS = 120.0
 
 LoopStatus = Literal["completed", "confirmation_required", "budget_exhausted"]
-ExecutionStatus = Literal["success", "error", "unknown", "confirmation_required"]
 
 
 class LoopError(RuntimeError):
@@ -43,33 +43,6 @@ class ChatModel(Protocol):
         tool_definitions: Sequence[Mapping[str, Any]],
         timeout_seconds: float | None = None,
     ) -> Mapping[str, Any]: ...
-
-
-class RuntimeExecutor(Protocol):
-    """循环唯一允许的工具执行入口。
-
-    ``execute`` 必须在任何副作用发生前校验工具、可信身份、权限、参数、确认状态
-    和剩余超时。它返回的映射必须包含 call_id、tool_id、status、result、error；
-    等待确认时还须提供 confirmation。这里不提供直接调用 Tool.invoke 的后门。
-    """
-
-    def execute(
-        self,
-        *,
-        call_id: str,
-        tool_id: str,
-        arguments: Mapping[str, Any],
-        timeout_seconds: float,
-    ) -> Mapping[str, Any]: ...
-
-
-@dataclass(frozen=True, slots=True)
-class ToolCall:
-    """经过循环协议检查的单次工具请求。"""
-
-    call_id: str
-    tool_id: str
-    arguments: Mapping[str, Any]
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,7 +82,7 @@ def run_loop(
 
     只有模型的原生 ``tool_calls`` 可触发工具执行；正文始终视为回答文本。
     每个结果会以带有相同 call_id 的工具消息回填，之后再请求模型决定下一步。
-    未实现的 executor 不会被本函数绕过；实际运行前必须提供满足上述契约的执行器。
+    所有工具调用交给执行器；调用去重、权限和确认不在循环中实现。
     """
     if not isinstance(user_message, str) or not user_message.strip():
         raise ValueError("user_message 必须是非空字符串")
@@ -211,7 +184,10 @@ def run_loop(
                 arguments=call.arguments,
                 timeout_seconds=remaining,
             )
-            status, result_data, confirmation = _execution_result(execution, call)
+            try:
+                status, result_data, confirmation = validate_execution_result(execution, call)
+            except ExecutionProtocolError as error:
+                raise LoopProtocolError(str(error)) from error
 
             if status == "confirmation_required":
                 return _result(
@@ -294,8 +270,6 @@ def _make_tool_call(
 ) -> ToolCall:
     if not isinstance(call_id, str) or not call_id.strip():
         raise LoopProtocolError("工具请求 call_id 必须是非空字符串")
-    if call_id in seen_call_ids:
-        raise LoopProtocolError(f"工具请求重复使用 call_id：{call_id}")
     if not isinstance(tool_id, str) or not tool_id.strip():
         raise LoopProtocolError("工具请求 tool_id 必须是非空字符串")
     if not isinstance(arguments, Mapping):
@@ -307,61 +281,6 @@ def _make_tool_call(
         raise LoopProtocolError("工具 arguments 必须是 JSON 数据") from error
     seen_call_ids.add(call_id)
     return ToolCall(call_id, tool_id, copied_arguments)
-
-
-def _execution_result(
-    value: Mapping[str, Any], call: ToolCall
-) -> tuple[ExecutionStatus, dict[str, Any], Mapping[str, Any] | None]:
-    if not isinstance(value, Mapping):
-        raise LoopProtocolError("runtime executor 必须返回对象")
-    if value.get("call_id") != call.call_id or value.get("tool_id") != call.tool_id:
-        raise LoopProtocolError("runtime executor 结果与工具请求的 call_id/tool_id 不匹配")
-    status = value.get("status")
-    if not isinstance(status, str) or status not in {
-        "success",
-        "error",
-        "unknown",
-        "confirmation_required",
-    }:
-        raise LoopProtocolError("runtime executor 返回了不支持的 status")
-
-    if status == "confirmation_required":
-        confirmation = value.get("confirmation")
-        if not isinstance(confirmation, Mapping):
-            raise LoopProtocolError("等待确认时 executor 必须返回 confirmation 对象")
-        try:
-            safe_confirmation = json.loads(_json_text(dict(confirmation)))
-        except (TypeError, ValueError) as error:
-            raise LoopProtocolError("confirmation 必须是 JSON 对象") from error
-        return status, {}, safe_confirmation
-
-    result = value.get("result")
-    error = value.get("error")
-    if error is not None:
-        if not isinstance(error, Mapping):
-            raise LoopProtocolError("executor error 必须是对象或 null")
-        if not isinstance(error.get("code"), str) or not isinstance(error.get("message"), str):
-            raise LoopProtocolError("executor error 必须包含字符串 code 和 message")
-        error = {"code": error["code"], "message": error["message"]}
-    if status == "error" and error is None:
-        raise LoopProtocolError("executor status=error 时必须提供 error")
-    if status == "success" and error is not None:
-        raise LoopProtocolError("executor status=success 时 error 必须为 null")
-    try:
-        safe_result = json.loads(_json_text(result))
-    except (TypeError, ValueError) as error:
-        raise LoopProtocolError("executor result 必须是 JSON 数据") from error
-    return (
-        status,
-        {
-            "call_id": call.call_id,
-            "tool_id": call.tool_id,
-            "status": status,
-            "result": safe_result,
-            "error": error,
-        },
-        None,
-    )
 
 
 def _remaining_time(started_at: float, timeout_seconds: float) -> float:

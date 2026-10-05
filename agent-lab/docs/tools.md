@@ -1,6 +1,6 @@
 # 业务工具
 
-工具层已实现，HTTP `/chat` 仍为占位服务。模型客户端和可注入执行器的循环已实现，真实 runtime 执行器及 HTTP 接入尚未实现。
+工具层已实现，HTTP `/chat` 仍为占位服务。模型客户端和可注入执行器的循环已实现，工具执行器已实现，HTTP 接入及确认交互尚未实现。
 
 ## 职责
 
@@ -9,9 +9,8 @@
 - `registry.py`：汇总、按 ID 查找、导出描述；不维护会话，不调用接口，不判断身份或执行工具。
 - `__init__.py`：统一导出公共工具、工具集合和注册表。
 
-`runtime/executor.py` 保留占位。原注册表中的身份与权限检查、写入确认、幂等键生成、
-调用编号处理、异常状态判定及对话结果封装已移除，未来统一由 runtime 实现。
-没有把这些职责换个名字藏进其他工具模块。
+`runtime/executor.py` 已实现身份、权限、确认、幂等及结果转换，详见 [执行器说明](executor.md)。
+这些职责不属于注册表，工具模块仍只负责契约与 HTTP 调用适配。
 
 ## 已有工具
 
@@ -46,7 +45,7 @@ read_example = ToolRegistry([LIST_ORDERS])
 `definitions()` 返回当前目录中所有工具描述，包括 `requires_admin` 和
 `requires_confirmation` 等声明。这些字段是元数据，不代表完成了授权。
 默认目录包含管理员工具，不能把默认全量描述误认为当前用户的授权工具列表。
-未来 runtime 应依据可信身份选定可见工具，并在实际执行时重新检查权限。
+调用方应依据可信身份选定可见工具；执行器在实际执行时重新检查身份与权限。
 
 ## 客户端与底层适配
 
@@ -54,15 +53,15 @@ read_example = ToolRegistry([LIST_ORDERS])
 没有重复转发端点方法的聚合类。一个用户的各模块共享一个 `BusinessApiTransport`，
 不同用户不能共享或在操作中切换会话。Cookie、CSRF 及单请求超时仍由传输层管理。
 
-`Tool.invoke(transport, arguments, key)` 是给未来执行器及底层测试使用的适配方法，
+`Tool.invoke(transport, arguments, key)` 是给执行器及底层测试使用的适配方法，
 不是接收模型请求的入口。它校验参数，将资源 ID、查询参数或请求体传给对应客户端，
 并原样返回 `ApiResponse`；客户端异常原样抛出，不自动重试。
 写工具必须由调用方提供有效幂等键，它不会生成键，也不负责确认流程。
-目前没有可直接供模型使用的受控执行入口，不应将模型请求直接接到 `invoke`。
+模型请求必须经过 `ToolExecutor.execute`，不应直接接到 `invoke`。
 
 响应中的业务数据在 `ApiResponse.data` 中，HTTP 响应头不应进入模型上下文。
 成功写入的业务数据为 `{data: 业务对象, replayed: 布尔值}`；列表为
-`count/page/page_size/results`。未来 runtime 负责校验响应、生成 `success/error/unknown` 执行结果，循环关联调用编号并将数据序列化到原生 tool 消息中，尤其不能将写入超时简单视为失败后重发。
+`count/page/page_size/results`。执行器负责校验响应、生成 `success/error/unknown` 执行结果，循环关联调用编号并将数据序列化到原生 tool 消息中，尤其不能将写入超时简单视为失败后重发。
 `get_operation` 接收原操作编号，查询不到记录不证明没有正在执行的请求。
 
 ## 校验和测试
@@ -73,6 +72,6 @@ read_example = ToolRegistry([LIST_ORDERS])
 
 运行 `make test`，验证注册表、参数契约及所有工具对应的 HTTP 请求。
 测试使用模拟传输，不修改业务数据库，不调用模型。
-当前测试不验证 runtime 的权限、确认或结果状态，因为该层尚未实现。
+执行器测试另行验证 runtime 的权限、确认、去重及结果状态。
 
 模型工具列表通过原生 `tools` 参数传递，不注入系统提示。具体消息格式及 Ollama 内部处理见 [原生工具调用](native-tool-calling.md)。

@@ -29,3 +29,17 @@ class PaginationQuery(TypedDict):
 
     page: NotRequired[int]
     page_size: NotRequired[int]
+
+
+def normalize_query(query: Mapping[str, object] | None) -> dict[str, QueryValue] | None:
+    """校验并复制 TypedDict 查询条件，转换为传输层接受的值类型。"""
+    if query is None:
+        return None
+    parameters: dict[str, QueryValue] = {}
+    for key, value in query.items():
+        if not isinstance(key, str):
+            raise TypeError("query parameter names must be strings")
+        if isinstance(value, bool) or not isinstance(value, (str, int)):
+            raise TypeError(f"query parameter {key!r} must be a string or integer")
+        parameters[key] = value
+    return parameters

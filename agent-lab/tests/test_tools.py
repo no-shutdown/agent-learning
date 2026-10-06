@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import Mock
 
 from agent_lab.clients import ApiResponse, BusinessApiTransport, BusinessApiConnectionError
+from agent_lab.clients.orders_api import OrdersApi
 from agent_lab.tools import ALL_TOOLS, LIST_ORDERS, ToolRegistry, InvalidArguments
 
 
@@ -44,6 +45,10 @@ class ToolsTest(unittest.TestCase):
             ("get_order", {"order_id": True}),
             ("get_order", {"order_id": "12"}),
             ("get_order", {}),
+            ("list_orders", []),
+            ("list_orders", {"q": 123}),
+            ("create_order", {"address_id": 1, "items": {}}),
+            ("create_order", {"address_id": 1, "items": [None]}),
             ("list_orders", {"status": "unknown"}),
             ("list_orders", {"page_size": 101}),
             ("pay_order", {"order_id": 12, "version": 1, "confirmed": True}),
@@ -60,6 +65,25 @@ class ToolsTest(unittest.TestCase):
             with self.subTest(tool=name, arguments=args):
                 with self.assertRaises(InvalidArguments):
                     self.registry.get(name).invoke(self.transport, args, "test-operation")
+        self.transport.send.assert_not_called()
+
+    def test_client_query_preserves_values_without_aliasing(self):
+        api = OrdersApi(self.transport)
+        query = {"page": 2, "q": "订单", "status": "paid"}
+        api.list_orders(query)
+        request = self.requests[-1]
+        self.assertEqual(request.query, query)
+        query["page"] = 3
+        self.assertEqual(request.query["page"], 2)
+        api.list_orders()
+        self.assertIsNone(self.requests[-1].query)
+
+    def test_invalid_client_query_never_calls_transport(self):
+        api = OrdersApi(self.transport)
+        for query in ({"page": True}, {"page": 1.5}, {"q": None}, {1: "value"}):
+            with self.subTest(query=query):
+                with self.assertRaises(TypeError):
+                    api.list_orders(query)
         self.transport.send.assert_not_called()
 
     def test_write_passes_original_key_and_body(self):

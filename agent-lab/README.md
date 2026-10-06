@@ -11,7 +11,7 @@ make run
 
 默认监听 `127.0.0.1:8001`。先启动 Ollama 与 business-demo，登录网站后打开 AI 助手即可聊天。GET `/health` 仅检查入口存活；POST `/chat` 调用模型和执行器，POST `/confirm` 接续确认或取消。业务身份来自网站服务端转交的登录会话，不能直接发一个 message 就操作业务。协议与限制见 [HTTP 入口说明](docs/http-entry.md)。
 
-重建虚拟环境并安装开发工具用 `make setup`；`make check` 运行核心边界的静态类型检查及 src、evals、tests 的语法检查；`make test` 运行配置和工具层测试。当前没有第三方运行依赖。`pyproject.toml` 提供项目、打包和 Ruff 配置，不要求现在安装框架或 SDK。
+重建虚拟环境并安装开发工具用 `make setup`；`make check` 运行全部 Agent 源码的静态类型检查及 src、evals、tests 的语法检查；`make test` 运行配置和工具层测试。当前没有第三方运行依赖。`pyproject.toml` 提供项目、打包和 Ruff 配置，不要求现在安装框架或 SDK。
 
 可复制 `.env.example` 为 `.env`；`make run` 与父目录启动器会加载它。`config.load_settings()` 统一读取并校验环境变量，启动入口用其中的 `AGENT_PORT` 启动服务，并将业务和模型配置显式注入客户端。直接运行 Python 时需自行注入环境变量，配置模块不自动加载 `.env`。Ollama 由 App 独立启动，默认 API 地址为 `http://127.0.0.1:11434`。
 
@@ -147,6 +147,6 @@ tail -f runs/logs/agent.jsonl
 
 `make typecheck` 单独运行 mypy，`make check` 已包含它。开发依赖在 `requirements-dev.txt` 中，已存在的环境可执行 `.venv/bin/python -m pip install -r requirements-dev.txt`；运行网站聊天不需要 mypy。
 
-当前采用渐进覆盖：`main.py`、`models/contracts.py`、`runtime/contracts.py`、`runtime/loop.py`。其他模块的已声明接口仍用于检查调用，但暂不报告其内部类型错误；这不是全仓库严格类型检查。配置见 pyproject.toml。
+当前检查整个 `src`，包括未完整标注类型的函数体；`main.py`、`models/contracts.py`、`runtime/contracts.py`、`runtime/loop.py` 额外要求函数完整标注类型。这不是全仓库 strict 检查，测试和 business-demo 不在 mypy 覆盖范围内。配置见 pyproject.toml。
 
 HTTP 服务器使用显式声明 application 的 AgentHTTPServer，Handler.server 声明为该类型。Conversation 使用具体字段类型与 slots；模型工厂声明为 `Callable[[], ChatModel]`，业务连接工厂声明为 `Callable[[], BusinessApiTransport]`。聊天与确认输入在运行时校验后转为各自的数据类，回复使用 TypedDict。类型提示帮助 IDE 和 mypy 提前发现错误，外部 JSON、身份和工具参数仍必须运行时校验。

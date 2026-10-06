@@ -8,4 +8,4 @@ HTTP 入口测试使用真实 loop/executor 配合模拟模型/业务传输，�
 
 模型协议测试分别验证 loop 接收独立 FakeModel 的统一响应、拒绝供应商原始字典，以及 OllamaClient 的消息/工具双向转换、调用编号关联与缺失编号补全。既有确认、取消、重放、历史和日志测试继续覆盖新协议。
 
-`make check` 包含核心边界的 mypy 检查；运行时测试使用真正的 AgentHTTPServer 构造流程，并覆盖确认状态缺失时不会执行写入。
+`make check` 包含全部 Agent 源码的 mypy 检查；运行时测试使用真正的 AgentHTTPServer 构造流程，并覆盖确认状态缺失时不会执行写入。

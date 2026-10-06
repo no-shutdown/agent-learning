@@ -5,6 +5,7 @@ from urllib.parse import quote
 
 from .pojo import ApiRequest, ApiResponse, JsonValue, PageResponse, PaginationQuery
 from .transport import BusinessApiTransport, validate_idempotency_key
+from .pojo.request import normalize_query
 
 
 class OperationSummaryResponse(TypedDict):
@@ -33,7 +34,7 @@ class OperationsApi:
         """分页查询当前用户已提交操作的摘要列表。"""
         return cast(
             ApiResponse[PageResponse[OperationSummaryResponse]],
-            self._transport.send(ApiRequest("GET", "operations", query=query)),
+            self._transport.send(ApiRequest("GET", "operations", query=normalize_query(query))),
         )
 
     def get_operation(self, idempotency_key: str) -> ApiResponse[OperationDetailResponse]:

@@ -4,7 +4,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from decimal import Decimal
 import re
-from typing import Any, Callable
+from typing import Callable
 
 from ..clients import (
     AddressesApi,
@@ -48,33 +48,43 @@ class InvalidArguments(ValueError):
     """模型参数不符合工具契约。"""
 
 
-def validate(value: Any, schema: dict, path: str = "arguments") -> None:
+def validate(value: object, schema: dict, path: str = "arguments") -> None:
     """仅实现本项目契约用到的约束，不宣称是通用 JSON Schema 引擎。"""
     kind = schema["type"]
-    expected = {"object": dict, "array": list, "integer": int, "string": str, "boolean": bool}[kind]
-    if type(value) is not expected:
-        raise InvalidArguments(f"{path} 必须是 {kind}")
     if kind == "object":
+        if type(value) is not dict:
+            raise InvalidArguments(f"{path} 必须是 {kind}")
         props = schema["properties"]
         if set(value) - set(props) or set(schema["required"]) - set(value):
             raise InvalidArguments(f"{path} 字段缺失或包含未声明字段")
         for key, item in value.items():
             validate(item, props[key], f"{path}.{key}")
     elif kind == "array":
+        if type(value) is not list:
+            raise InvalidArguments(f"{path} 必须是 {kind}")
         if not schema["minItems"] <= len(value) <= schema["maxItems"]:
             raise InvalidArguments(f"{path} 项目数量超出范围")
         for index, item in enumerate(value):
             validate(item, schema["items"], f"{path}[{index}]")
     elif kind == "integer":
+        if type(value) is not int:
+            raise InvalidArguments(f"{path} 必须是 {kind}")
         if not schema["minimum"] <= value <= schema["maximum"]:
             raise InvalidArguments(f"{path} 数值超出范围")
     elif kind == "string":
+        if type(value) is not str:
+            raise InvalidArguments(f"{path} 必须是 {kind}")
         if not schema["minLength"] <= len(value) <= schema["maxLength"]:
             raise InvalidArguments(f"{path} 长度超出范围")
         if schema["minLength"] and not value.strip():
             raise InvalidArguments(f"{path} 不能为空白")
         if "pattern" in schema and re.fullmatch(schema["pattern"], value) is None:
             raise InvalidArguments(f"{path} 格式错误")
+    elif kind == "boolean":
+        if type(value) is not bool:
+            raise InvalidArguments(f"{path} 必须是 {kind}")
+    else:
+        raise ValueError(f"不支持的工具参数类型：{kind}")
     if "enum" in schema and value not in schema["enum"]:
         raise InvalidArguments(f"{path} 不是允许的枚举值")
 

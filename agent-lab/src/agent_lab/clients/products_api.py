@@ -4,6 +4,7 @@ from typing import NotRequired, TypedDict, cast
 
 from .pojo import ApiRequest, ApiResponse, PageResponse, PaginationQuery, WriteResponse
 from .transport import BusinessApiTransport
+from .pojo.request import normalize_query
 
 
 class ProductListQuery(PaginationQuery):
@@ -50,7 +51,7 @@ class ProductsApi:
         """分页查询上架商品；可用 q 按商品名称搜索。"""
         return cast(
             ApiResponse[PageResponse[ProductResponse]],
-            self._transport.send(ApiRequest("GET", "products", query=query)),
+            self._transport.send(ApiRequest("GET", "products", query=normalize_query(query))),
         )
 
     def get_product(self, product_id: int) -> ApiResponse[ProductResponse]:
@@ -68,7 +69,7 @@ class ProductsApi:
         """管理员分页查询全部商品，包括已下架商品。"""
         return cast(
             ApiResponse[PageResponse[ProductResponse]],
-            self._transport.send(ApiRequest("GET", "manage/products", query=query)),
+            self._transport.send(ApiRequest("GET", "manage/products", query=normalize_query(query))),
         )
 
     def create_product(

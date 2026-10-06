@@ -23,6 +23,7 @@ from urllib.request import (
 )
 
 from .pojo import ApiRequest, ApiResponse, QueryValue
+from .pojo.request import normalize_query
 
 
 DEFAULT_API_BASE_URL = "http://127.0.0.1:8000/api/v1"
@@ -55,7 +56,7 @@ class BusinessApiProtocolError(BusinessApiException):
 class _NoRedirectHandler(HTTPRedirectHandler):
     """阻止重定向转发会话及 CSRF 请求头。"""
 
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[no-untyped-def]
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
 
 
@@ -291,20 +292,15 @@ class BusinessApiTransport:
     @staticmethod
     def _query_parameters(query: Mapping[str, QueryValue]) -> dict[str, QueryValue]:
         """拒绝 bool 等容易误传的分页和筛选参数类型。"""
-        parameters: dict[str, str | int] = {}
-        for key, value in query.items():
-            if not isinstance(key, str):
-                raise TypeError("query parameter names must be strings")
-            if isinstance(value, bool) or not isinstance(value, (str, int)):
-                raise TypeError(f"query parameter {key!r} must be a string or integer")
-            parameters[key] = value
-        return parameters
+        return normalize_query(query) or {}
 
     def bind_business_session(self, session_key: str) -> None:
         """接收本地网站代理转交的 Django sessionid；仅保存在当前会话内存。"""
         if not isinstance(session_key, str) or re.fullmatch(r"[a-z0-9]{32}", session_key) is None:
             raise ValueError("Invalid business session")
         host = urlsplit(self._base_url).hostname
+        if host is None:
+            raise ValueError("Business API URL must contain a hostname")
         domain = "localhost.local" if host == "localhost" else host
         with self._session_lock:
             self._cookie_jar.clear()
@@ -326,7 +322,7 @@ class BusinessApiTransport:
                     discard=True,
                     comment=None,
                     comment_url=None,
-                    rest={"HttpOnly": None},
+                    rest={"HttpOnly": ""},
                 )
             )
 

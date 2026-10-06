@@ -93,7 +93,7 @@ class OllamaChatResponse(TypedDict):
 class _NoRedirectHandler(HTTPRedirectHandler):
     """将意外重定向作为 HTTP 错误返回，不跟随到其他地址。"""
 
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[no-untyped-def]
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
 
 
@@ -169,13 +169,15 @@ class OllamaClient:
     def _encode_message(message: Message) -> dict:
         if message.role == "tool":
             result = message.tool_result
+            if result is None:
+                raise ModelProtocolError("工具消息缺少结果")
             return {
                 "role": "tool",
                 "tool_name": result["tool_id"],
                 "tool_call_id": result["call_id"],
                 "content": json.dumps(dict(result), ensure_ascii=False, allow_nan=False),
             }
-        encoded = {"role": message.role, "content": message.text}
+        encoded: dict[str, Any] = {"role": message.role, "content": message.text}
         if message.tool_calls:
             encoded["tool_calls"] = [
                 {

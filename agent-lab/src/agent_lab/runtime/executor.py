@@ -11,15 +11,18 @@ import math
 import threading
 import time
 from uuid import uuid4
+from typing import Any
 
 from ..clients import (
     AuthApi,
     BusinessApiTransport,
+    ApiResponse,
     BusinessApiConnectionError,
     BusinessApiHttpError,
     BusinessApiProtocolError,
 )
 from ..tools import InvalidArguments, ToolRegistry
+from ..tools.contracts import Tool
 from .contracts import json_text
 
 
@@ -50,7 +53,7 @@ class ToolExecutor:
         username: str,
         max_calls: int = 16,
         confirmation_ttl: float = 300,
-    ):
+    ) -> None:
         if not isinstance(username, str) or not username.strip():
             raise ValueError("需要可信的登录用户名")
         if type(max_calls) is not int or max_calls <= 0:
@@ -105,7 +108,7 @@ class ToolExecutor:
         finally:
             self._lock.release()
 
-    def _execute(self, call_id, tool_id, arguments, deadline):
+    def _execute(self, call_id: str, tool_id: str, arguments: Mapping, deadline: float) -> dict:
         if self._count >= self._max_calls:
             return self._failure(call_id, tool_id, "budget_exhausted", "执行次数已达上限")
         self._count += 1  # 拒绝、查询及等待确认均计入，不能绕过 loop 无限调用。
@@ -243,13 +246,15 @@ class ToolExecutor:
         return result
 
     @staticmethod
-    def _response_data(tool, response, arguments):
+    def _response_data(tool: Tool, response: ApiResponse[Any], arguments: Mapping) -> dict:
         if not 200 <= response.status_code < 300 or not isinstance(response.data, dict):
             raise BusinessApiProtocolError("HTTP 状态或业务数据格式异常")
         try:
             data = json.loads(json_text(response.data))
         except (ValueError, TypeError):
             raise BusinessApiProtocolError("响应不是合法 JSON 数据") from None
+        if not isinstance(data, dict):
+            raise BusinessApiProtocolError("响应必须是 JSON 对象")
         if tool.writes:
             entity = data.get("data")
             if (
@@ -285,7 +290,9 @@ class ToolExecutor:
         return data
 
     @staticmethod
-    def _failure(call_id, tool_id, code, message, uncertain_call=None):
+    def _failure(
+        call_id: str, tool_id: str, code: str, message: str, uncertain_call: _Call | None = None,
+    ) -> dict:
         return {
             "call_id": call_id,
             "tool_id": tool_id,
@@ -297,7 +304,7 @@ class ToolExecutor:
         }
 
     @staticmethod
-    def _positive_timeout(value):
+    def _positive_timeout(value: object) -> None:
         if (
             isinstance(value, bool)
             or not isinstance(value, (int, float))

@@ -7,7 +7,7 @@ This project deliberately starts empty. The user is learning by implementing it 
 - Teach one concrete capability at a time with objective, input, expected output and acceptance criteria. Let the user attempt it first; offer hints before small code examples. Implement a whole Agent only when explicitly requested.
 - Business operations must go through business-demo's HTTP API. Authentication, validation and reliable writes remain enforced by that website.
 - Use fixed cases to compare prompt versions. Separate prompt, model, data and program failures. Keep experiment records lightweight.
-- `make run` starts the Agent HTTP service on 127.0.0.1:8001; `make check` runs the scoped mypy type check plus syntax checks in src, evals and tests; `make test` runs tool-layer tests. Runtime uses only Python's standard library.
+- `make run` starts the Agent HTTP service on 127.0.0.1:8001; `make check` runs the mypy type check for all Agent source plus syntax checks in src, evals and tests; `make test` runs tool-layer tests. Runtime uses only Python's standard library.
 - Never write real credentials in source, documentation or version control.
 - Do not alter the user's Desktop learning notes unless explicitly requested.
 
@@ -24,4 +24,4 @@ This project deliberately starts empty. The user is learning by implementing it 
 
 - The loop depends only on models/contracts.py (ChatModel.generate, ModelRequest, ModelResponse, Message, ToolCall). Provider-specific message serialization, native response parsing, missing call-ID generation and error adaptation belong in each model client. Keep confirmation/cancellation history in the same neutral Message type. Only main selects concrete adapters.
 
-- Keep HTTP/application boundaries explicitly typed: AgentHTTPServer owns application at construction, Handler.server is typed, and Conversation fields must not regress to object or untyped containers. Run make check and make test for relevant changes. Mypy coverage is intentionally gradual and listed in pyproject.toml; do not blanket-ignore new boundary errors.
+- Keep HTTP/application boundaries explicitly typed: AgentHTTPServer owns application at construction, Handler.server is typed, and Conversation fields must not regress to object or untyped containers. Run make check and make test for relevant changes. Mypy checks all src modules, including untyped function bodies; core boundary modules additionally require function annotations, as configured in pyproject.toml. Do not blanket-ignore new boundary errors.

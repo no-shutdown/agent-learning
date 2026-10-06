@@ -4,6 +4,7 @@ from typing import TypedDict, cast
 
 from .pojo import ApiRequest, ApiResponse, PageResponse, PaginationQuery, WriteResponse
 from .transport import BusinessApiTransport
+from .pojo.request import normalize_query
 
 
 class AddressFields(TypedDict):
@@ -46,7 +47,7 @@ class AddressesApi:
         """分页查询当前用户的收货地址。"""
         return cast(
             ApiResponse[PageResponse[AddressResponse]],
-            self._transport.send(ApiRequest("GET", "addresses", query=query)),
+            self._transport.send(ApiRequest("GET", "addresses", query=normalize_query(query))),
         )
 
     def create_address(

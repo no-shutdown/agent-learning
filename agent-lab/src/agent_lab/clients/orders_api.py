@@ -3,6 +3,7 @@
 from typing import Literal, NotRequired, TypedDict, cast
 from .pojo import ApiRequest, ApiResponse, PageResponse, PaginationQuery, WriteResponse
 from .transport import BusinessApiTransport
+from .pojo.request import normalize_query
 
 
 OrderStatus = Literal["pending_payment", "paid", "shipped", "cancelled"]
@@ -78,7 +79,7 @@ class OrdersApi:
         """分页查询当前用户订单，可按状态或编号、商品名、备注筛选。"""
         return cast(
             ApiResponse[PageResponse[OrderResponse]],
-            self._transport.send(ApiRequest("GET", "orders", query=query)),
+            self._transport.send(ApiRequest("GET", "orders", query=normalize_query(query))),
         )
 
     def list_admin_orders(
@@ -87,7 +88,7 @@ class OrdersApi:
         """管理员分页查询全部订单，可按状态、编号、商品名或备注筛选。"""
         return cast(
             ApiResponse[PageResponse[OrderResponse]],
-            self._transport.send(ApiRequest("GET", "manage/orders", query=query)),
+            self._transport.send(ApiRequest("GET", "manage/orders", query=normalize_query(query))),
         )
 
     def get_order(self, order_id: int) -> ApiResponse[OrderResponse]:

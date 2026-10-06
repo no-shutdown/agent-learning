@@ -21,8 +21,8 @@ R = TypeVar("R")
 LOGGER = logging.getLogger("agent_lab.trace")
 LOGGER.addHandler(logging.NullHandler())
 LOGGER.propagate = False
-_CONTEXT = ContextVar("agent_trace", default={})
-_SECRETS = ContextVar("agent_trace_secrets", default=())
+_CONTEXT: ContextVar[dict[str, object]] = ContextVar("agent_trace", default={})
+_SECRETS: ContextVar[tuple[object, ...]] = ContextVar("agent_trace_secrets", default=())
 _SECRET = re.compile(
     r"password|passwd|secret|authorization|cookie|api.?key|access.?token|refresh.?token|"
     r"session.?key|session.?id|business.?session|csrf|confirmation_id|^token$",

@@ -14,7 +14,7 @@ class ModelProtocolError(ModelError):
     """模型输入或输出不符合统一协议。"""
 
 
-def json_copy(value):
+def json_copy(value: object) -> Any:
     try:
         return json.loads(json.dumps(value, ensure_ascii=False, allow_nan=False))
     except (TypeError, ValueError) as error:
@@ -27,7 +27,7 @@ class ToolCall:
     tool_id: str
     arguments: Mapping[str, Any]
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if not isinstance(self.call_id, str) or not 1 <= len(self.call_id.strip()) <= 100:
             raise ModelProtocolError("工具调用编号无效")
         if not isinstance(self.tool_id, str) or not self.tool_id.strip():
@@ -44,7 +44,7 @@ class Message:
     tool_calls: tuple[ToolCall, ...] = ()
     tool_result: Mapping[str, Any] | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.role not in {"system", "user", "assistant", "tool"} or not isinstance(
             self.text, str
         ):
@@ -74,7 +74,7 @@ class ModelRequest:
     messages: Sequence[Message]
     tools: Sequence[Mapping[str, Any]] = ()
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if not self.messages or any(not isinstance(m, Message) for m in self.messages):
             raise ModelProtocolError("messages 必须包含统一 Message")
         object.__setattr__(self, "messages", tuple(self.messages))
@@ -87,7 +87,7 @@ class ModelResponse:
     tool_calls: tuple[ToolCall, ...] = ()
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if not isinstance(self.text, str):
             raise ModelProtocolError("模型回答必须为字符串")
         if not isinstance(self.tool_calls, tuple) or any(

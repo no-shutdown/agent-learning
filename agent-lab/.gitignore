@@ -13,3 +13,5 @@ runs/*
 *.egg-info/
 build/
 dist/
+
+.mypy_cache/

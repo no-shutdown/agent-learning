@@ -3,14 +3,13 @@
 import json
 import threading
 import unittest
-from http.server import ThreadingHTTPServer
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from unittest.mock import Mock
 
 from agent_lab.clients import ApiResponse, BusinessApiTransport
 from agent_lab.config import load_settings
-from agent_lab.main import AgentApplication, Handler, RequestError
+from agent_lab.main import AgentApplication, AgentHTTPServer, RequestError
 from agent_lab.models import OllamaError, ModelResponse, ToolCall, Message, ModelRequest
 from uuid import uuid4
 
@@ -135,6 +134,18 @@ class ApplicationTest(unittest.TestCase):
         self.assertEqual(len(self.model.generate.call_args.args[0].messages), 2)
         self.assertEqual(len(self.transports), 2)
 
+    def test_incomplete_confirmation_state_never_executes_write(self):
+        for field in ("executor", "registry", "confirmation_id"):
+            with self.subTest(field=field):
+                self.setUp()
+                pending = self.pending()
+                state = next(iter(self.app._conversations.values()))
+                setattr(state, field, None)
+                with self.assertRaises(RequestError) as caught:
+                    self.confirm(pending)
+                self.assertEqual(caught.exception.code, "confirmation_expired")
+                self.assertEqual(self.writes(), [])
+
     def test_model_failure_after_write_does_not_repeat_write(self):
         pending = self.pending()
         self.model.generate.side_effect = OllamaError("private detail")
@@ -171,8 +182,7 @@ class ApplicationTest(unittest.TestCase):
 
     def test_http_health_and_proxy_boundary(self):
         self.model.generate.return_value = answer("你好")
-        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        server.application = self.app
+        server = AgentHTTPServer(("127.0.0.1", 0), self.app)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         root = f"http://127.0.0.1:{server.server_port}"

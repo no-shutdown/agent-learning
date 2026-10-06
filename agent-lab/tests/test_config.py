@@ -93,13 +93,13 @@ class ConfigTest(unittest.TestCase):
 
     def test_startup_validates_before_listening(self):
         with patch.dict("os.environ", {"AGENT_PORT": "invalid"}, clear=True):
-            with patch("agent_lab.main.ThreadingHTTPServer") as server:
+            with patch("agent_lab.main.AgentHTTPServer") as server:
                 with self.assertRaises(ConfigError):
                     main()
                 server.assert_not_called()
         with patch.dict("os.environ", {"AGENT_PORT": "8123"}, clear=True):
             with (
-                patch("agent_lab.main.ThreadingHTTPServer") as server,
+                patch("agent_lab.main.AgentHTTPServer") as server,
                 patch("builtins.print"),
                 patch("agent_lab.main.configure_logging"),
             ):

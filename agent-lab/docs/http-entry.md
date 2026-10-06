@@ -1,5 +1,7 @@
 # HTTP 入口与网站接入
 
+`AgentHTTPServer` 在构造时接收 `AgentApplication`，不再动态挂载 application。`Handler.server` 声明具体服务器类型；输入校验后转换为 ChatInput 或 ConfirmationInput，会话字段与工厂返回值均有明确类型。
+
 `main.py` 负责配置注入、OllamaClient / 业务会话 / 工具目录 / ToolExecutor 的组装，以及 HTTP 请求和内存会话。模型循环仍由 `runtime/loop.py` 管理，工具授权与执行仍由 `runtime/executor.py` 管理。
 
 ## 启动与使用

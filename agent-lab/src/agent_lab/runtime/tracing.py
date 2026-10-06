@@ -1,6 +1,6 @@
 """结构化运行日志：上下文隔离、脱敏、滚动文件；日志失败不改变业务结果。"""
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Callable, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import datetime, timezone
@@ -13,6 +13,10 @@ from pathlib import Path
 import re
 import time
 from uuid import uuid4
+from typing import ParamSpec, TypeVar
+
+P = ParamSpec("P")
+R = TypeVar("R")
 
 LOGGER = logging.getLogger("agent_lab.trace")
 LOGGER.addHandler(logging.NullHandler())
@@ -125,14 +129,14 @@ def span(name, **request):
         raise
 
 
-def traced(name, fields):
+def traced(name: str, fields: Sequence[str]) -> Callable[[Callable[P, R]], Callable[P, R]]:
     """记录有多个提前返回分支的执行器，避免漏掉拒绝或去重结果。"""
 
-    def decorate(function):
+    def decorate(function: Callable[P, R]) -> Callable[P, R]:
         signature = inspect.signature(function)
 
         @wraps(function)
-        def wrapped(*args, **kwargs):
+        def wrapped(*args: P.args, **kwargs: P.kwargs) -> R:
             arguments = signature.bind(*args, **kwargs).arguments
             with span(name, **{key: arguments[key] for key in fields if key in arguments}) as done:
                 result = function(*args, **kwargs)

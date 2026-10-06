@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, cast
 from ..models.contracts import ToolCall
 
 ExecutionStatus = Literal["success", "error", "unknown", "confirmation_required"]
@@ -52,14 +52,15 @@ def validate_execution_result(
     }:
         raise ExecutionProtocolError("runtime executor 返回了不支持的 status")
 
+    status = cast(ExecutionStatus, status)
     if status == "confirmation_required":
         confirmation = value.get("confirmation")
         if not isinstance(confirmation, Mapping):
             raise ExecutionProtocolError("等待确认时 executor 必须返回 confirmation 对象")
         try:
             safe_confirmation = json.loads(json_text(dict(confirmation)))
-        except (TypeError, ValueError) as error:
-            raise ExecutionProtocolError("confirmation 必须是 JSON 对象") from error
+        except (TypeError, ValueError) as protocol_error:
+            raise ExecutionProtocolError("confirmation 必须是 JSON 对象") from protocol_error
         return status, {}, safe_confirmation
 
     result = value.get("result")
@@ -76,8 +77,8 @@ def validate_execution_result(
         raise ExecutionProtocolError("executor status=success 时 error 必须为 null")
     try:
         safe_result = json.loads(json_text(result))
-    except (TypeError, ValueError) as error:
-        raise ExecutionProtocolError("executor result 必须是 JSON 数据") from error
+    except (TypeError, ValueError) as protocol_error:
+        raise ExecutionProtocolError("executor result 必须是 JSON 数据") from protocol_error
     return (
         status,
         {

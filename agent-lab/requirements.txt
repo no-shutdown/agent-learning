@@ -1,2 +1,2 @@
-# Initial entry point uses only the Python standard library.
-# Add a model client during the model-connectivity exercise.
+# Runtime uses only the Python standard library.
+# Development tools are listed in requirements-dev.txt.
